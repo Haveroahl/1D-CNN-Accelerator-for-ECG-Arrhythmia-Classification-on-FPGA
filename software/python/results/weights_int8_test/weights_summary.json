@@ -1,0 +1,221 @@
+{
+  "checkpoint": "./results/int8/model_int8.pth",
+  "checkpoint_epoch": "?",
+  "quantization_scheme": "INT8-dynamic",
+  "bit_width": 8,
+  "scales": {
+    "conv1.weight": 0.007001547142863274,
+    "conv1.bias": 0.0032183020375669003,
+    "conv2.weight": 0.007637448143213987,
+    "conv2.bias": 0.0026339648757129908,
+    "conv3.weight": 0.0071792881935834885,
+    "conv3.bias": 0.0029373320285230875,
+    "conv4.weight": 0.004393298178911209,
+    "conv4.bias": 0.002755481982603669,
+    "fc.weight": 0.004352911841124296,
+    "fc.bias": 0.002007364295423031
+  },
+  "total_params": 1244,
+  "total_clipped": 0,
+  "layers": [
+    {
+      "param": "conv1_weight",
+      "shape": [
+        4,
+        1,
+        5
+      ],
+      "n_values": 20,
+      "scale": 1.0,
+      "float_range": [
+        0.02100464142858982,
+        0.889196515083313
+      ],
+      "int8_range": [
+        0,
+        1
+      ],
+      "quant_err_max": 0.4958885908126831,
+      "quant_err_mean": 0.2799682021141052,
+      "n_clipped": 0
+    },
+    {
+      "param": "conv1_bias",
+      "shape": [
+        4
+      ],
+      "n_values": 4,
+      "scale": 1.0,
+      "float_range": [
+        -0.30895698070526123,
+        0.4087243676185608
+      ],
+      "int8_range": [
+        0,
+        0
+      ],
+      "quant_err_max": 0.4087243676185608,
+      "quant_err_mean": 0.26872819662094116,
+      "n_clipped": 0
+    },
+    {
+      "param": "conv2_weight",
+      "shape": [
+        8,
+        4,
+        5
+      ],
+      "n_values": 160,
+      "scale": 1.0,
+      "float_range": [
+        -0.9699559211730957,
+        0.5575337409973145
+      ],
+      "int8_range": [
+        -1,
+        1
+      ],
+      "quant_err_max": 0.49643412232398987,
+      "quant_err_mean": 0.2065231055021286,
+      "n_clipped": 0
+    },
+    {
+      "param": "conv2_bias",
+      "shape": [
+        8
+      ],
+      "n_values": 8,
+      "scale": 1.0,
+      "float_range": [
+        -0.3345135450363159,
+        0.22915494441986084
+      ],
+      "int8_range": [
+        0,
+        0
+      ],
+      "quant_err_max": 0.3345135450363159,
+      "quant_err_mean": 0.1679152548313141,
+      "n_clipped": 0
+    },
+    {
+      "param": "conv3_weight",
+      "shape": [
+        8,
+        8,
+        5
+      ],
+      "n_values": 320,
+      "scale": 1.0,
+      "float_range": [
+        -0.9117696285247803,
+        0.3948608636856079
+      ],
+      "int8_range": [
+        -1,
+        0
+      ],
+      "quant_err_max": 0.4974498152732849,
+      "quant_err_mean": 0.1344776451587677,
+      "n_clipped": 0
+    },
+    {
+      "param": "conv3_bias",
+      "shape": [
+        8
+      ],
+      "n_values": 8,
+      "scale": 1.0,
+      "float_range": [
+        -0.37304115295410156,
+        0.1821145862340927
+      ],
+      "int8_range": [
+        0,
+        0
+      ],
+      "quant_err_max": 0.37304115295410156,
+      "quant_err_mean": 0.1876220852136612,
+      "n_clipped": 0
+    },
+    {
+      "param": "conv4_weight",
+      "shape": [
+        16,
+        8,
+        5
+      ],
+      "n_values": 640,
+      "scale": 1.0,
+      "float_range": [
+        -0.557948887348175,
+        0.5271958112716675
+      ],
+      "int8_range": [
+        -1,
+        1
+      ],
+      "quant_err_max": 0.4964427053928375,
+      "quant_err_mean": 0.11693201214075089,
+      "n_clipped": 0
+    },
+    {
+      "param": "conv4_bias",
+      "shape": [
+        16
+      ],
+      "n_values": 16,
+      "scale": 1.0,
+      "float_range": [
+        -0.34994620084762573,
+        0.25625982880592346
+      ],
+      "int8_range": [
+        0,
+        0
+      ],
+      "quant_err_max": 0.34994620084762573,
+      "quant_err_mean": 0.1331242322921753,
+      "n_clipped": 0
+    },
+    {
+      "param": "fc_weight",
+      "shape": [
+        4,
+        16
+      ],
+      "n_values": 64,
+      "scale": 1.0,
+      "float_range": [
+        -0.5354081392288208,
+        0.5528197884559631
+      ],
+      "int8_range": [
+        -1,
+        1
+      ],
+      "quant_err_max": 0.4788202941417694,
+      "quant_err_mean": 0.2180851399898529,
+      "n_clipped": 0
+    },
+    {
+      "param": "fc_bias",
+      "shape": [
+        4
+      ],
+      "n_values": 4,
+      "scale": 1.0,
+      "float_range": [
+        -0.25493526458740234,
+        0.1365007758140564
+      ],
+      "int8_range": [
+        0,
+        0
+      ],
+      "quant_err_max": 0.25493526458740234,
+      "quant_err_mean": 0.12947499752044678,
+      "n_clipped": 0
+    }
+  ]
+}

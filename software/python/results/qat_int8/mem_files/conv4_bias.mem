@@ -1,0 +1,10 @@
+// conv4_bias  scaled by 2^7  (add to acc_int32 before >>nb)
+// Hardware: b_eff = b_float * 2^7,  after >>nb = b_float
+00000010
+00000027
+00000022
+00000000
+FFFFFFFE
+00000007
+0000001C
+FFFFFFFB

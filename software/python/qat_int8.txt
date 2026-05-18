@@ -1,0 +1,77 @@
+============================================================
+  Phase 1: QAT Training (50 epochs, lr=0.0001)
+============================================================
+  Epoch   1/50  train_acc=0.9457  val_acc=0.9286  ← best
+  Epoch   5/50  train_acc=0.9434  val_acc=0.9286
+  Epoch  10/50  train_acc=0.9441  val_acc=0.9268
+  Epoch  15/50  train_acc=0.9444  val_acc=0.9249
+  Epoch  20/50  train_acc=0.9432  val_acc=0.9286
+  Epoch  25/50  train_acc=0.9429  val_acc=0.9258
+  Epoch  30/50  train_acc=0.9445  val_acc=0.9277
+  Epoch  35/50  train_acc=0.9439  val_acc=0.9286
+  Epoch  40/50  train_acc=0.9458  val_acc=0.9277
+  Epoch  45/50  train_acc=0.9463  val_acc=0.9286
+  Epoch  50/50  train_acc=0.9469  val_acc=0.9239
+
+  Best val_acc: 0.9315
+
+============================================================
+  Phase 2: INT8 Conversion + Calibration
+============================================================
+
+  input_shift_bits = 2  (scale = 2^2)
+  Per-layer weight shift bits:
+    conv1       shift=6  (scale=2^6)
+    conv2       shift=6  (scale=2^6)
+    conv3       shift=6  (scale=2^6)
+    conv4       shift=7  (scale=2^7)
+    fc          shift=8  (scale=2^8)
+  Per-layer activation nb (output right-shift):
+    conv1       nb=8
+    conv2       nb=6
+    conv3       nb=6
+    conv4       nb=7
+
+  Saved INT8 checkpoint: ./results/qat_int8/model_qat_int8.pth
+
+============================================================
+  Phase 3: Evaluation
+============================================================
+
+  QAT Float32 test accuracy : 0.9455 (94.55%)
+  QAT INT8 test accuracy    : 0.9455 (94.55%)
+  Accuracy drop (float→INT8): +0.00%
+
+  INT8 Per-class metrics:
+  Accuracy : 0.9455
+  F1-macro : 0.9387
+
+  Class       Precision     Recall         F1    Support
+  --------------------------------------------------
+  AFIB           0.8734     0.9174     0.8949        218
+  GSVT           0.9215     0.9215     0.9215        242
+  SB             0.9793     0.9947     0.9869        380
+  SR             0.9904     0.9156     0.9515        225
+
+  Confusion Matrix (rows=true, cols=pred):
+              AFIB    GSVT      SB      SR
+  AFIB         200      14       3       1
+  GSVT          18     223       0       1
+  SB             2       0     378       0
+  SR             9       5       5     206
+
+============================================================
+  Phase 4: Export .mem files
+============================================================
+
+[INFO] Exported .mem files to ./results/qat_int8/mem_files/
+  flat_weights.mem   (612 entries)
+  nb_shifts.mem      (per-layer activation shifts)
+  input_scale.txt    (input_shift_bits=2)
+
+  Verilog parameters:
+    parameter NB_CONV1 = 8;
+    parameter NB_CONV2 = 6;
+    parameter NB_CONV3 = 6;
+    parameter NB_CONV4 = 7;
+    parameter INPUT_SHIFT = 2;

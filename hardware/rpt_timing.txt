@@ -1,0 +1,62 @@
+Path #1: Setup slack is -1.903 (VIOLATED)
+    ===================================================================
+    From Node    : cnn_controller:u_ctrl|layer_state[2]
+    To Node      : ping_pong_sram:u_pp|dout[13]
+    Launch Clock : clk
+    Latch Clock  : clk
+    
+    Data Arrival Path:
+    
+    Total (ns)  Incr (ns)     Type  Element
+    ==========  ========= ==  ====  ===================================
+         0.000      0.000           launch edge time
+         0.000      0.000           source latency
+         0.000      0.000           clk
+         0.000      0.000 RR    IC  clk~input|i
+         0.650      0.650 RR  CELL  clk~input|o
+         1.145      0.495 RR    IC  clk~inputCLKENA0|inclk
+         1.527      0.382 RR  CELL  clk~inputCLKENA0|outclk
+         3.595      2.068 RR    IC  u_ctrl|layer_state[2]|clk
+         4.062      0.467 RR  CELL  cnn_controller:u_ctrl|layer_state[2]
+         4.062      0.000     uTco  cnn_controller:u_ctrl|layer_state[2]
+         4.062      0.000 FF  CELL  u_ctrl|layer_state[2]|q
+         4.665      0.603 FF    IC  u_ctrl|Decoder0~0|datac
+         5.079      0.414 FF  CELL  u_ctrl|Decoder0~0|combout
+         5.846      0.767 FF    IC  pp_rd_addr[0]~1|datad
+         6.290      0.444 FF  CELL  pp_rd_addr[0]~1|combout
+         9.740      3.450 FF    IC  u_pp|dout~8837|datac
+        10.174      0.434 FF  CELL  u_pp|dout~8837|combout
+        10.902      0.728 FF    IC  u_pp|dout~8840|datab
+        11.378      0.476 FF  CELL  u_pp|dout~8840|combout
+        13.018      1.640 FF    IC  u_pp|dout~8869|datad
+        13.454      0.436 FF  CELL  u_pp|dout~8869|combout
+        14.133      0.679 FF    IC  u_pp|dout~8912|dataf
+        14.207      0.074 FF  CELL  u_pp|dout~8912|combout
+        14.405      0.198 FF    IC  u_pp|dout~8913|datac
+        14.846      0.441 FF  CELL  u_pp|dout~8913|combout
+        15.038      0.192 FF    IC  u_pp|dout~8914|dataf
+        15.106      0.068 FF  CELL  u_pp|dout~8914|combout
+        15.106      0.000 FF    IC  u_pp|dout[13]|d
+        15.325      0.219 FF  CELL  ping_pong_sram:u_pp|dout[13]
+    
+    Data Required Path:
+    
+    Total (ns)  Incr (ns)     Type  Element
+    ==========  ========= ==  ====  ===================================
+        10.000     10.000           latch edge time
+        10.000      0.000           source latency
+        10.000      0.000           clk
+        10.000      0.000 RR    IC  clk~input|i
+        10.650      0.650 RR  CELL  clk~input|o
+        11.115      0.465 RR    IC  clk~inputCLKENA0|inclk
+        11.471      0.356 RR  CELL  clk~inputCLKENA0|outclk
+        13.235      1.764 RR    IC  u_pp|dout[13]|clk
+        13.666      0.431 RR  CELL  ping_pong_sram:u_pp|dout[13]
+        13.722      0.056           clock pessimism removed
+        13.422     -0.300           clock uncertainty
+        13.422      0.000     uTsu  ping_pong_sram:u_pp|dout[13]
+    
+    Data Arrival Time  :    15.325
+    Data Required Time :    13.422
+    Slack              :    -1.903 (VIOLATED)
+    ===================================================================

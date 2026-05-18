@@ -1,0 +1,89 @@
+D:/Thesis101/hardware/RTL/cp_engine.v {0 {vlog -work work -vopt -stats=none D:/Thesis101/hardware/RTL/cp_engine.v
+Questa Altera Starter FPGA Edition-64 vlog 2025.2 Compiler 2025.05 May 31 2025
+** Note: (vlog-220) 'D:/Thesis101/hardware/Thesis.mpf' is used as the ini file.
+-- Compiling module cp_engine
+** Error: D:/Thesis101/hardware/RTL/cp_engine.v(36): 'Port' must not be declared to be an array: ping_dout.
+** Error: D:/Thesis101/hardware/RTL/cp_engine.v(41): 'Port' must not be declared to be an array: pong_din.
+
+} {5.0 7.0} {}} D:/Thesis101/hardware/RTL/cnn_controller.v {1 {vlog -work work -vopt -stats=none D:/Thesis101/hardware/RTL/cnn_controller.v
+Questa Altera Starter FPGA Edition-64 vlog 2025.2 Compiler 2025.05 May 31 2025
+** Note: (vlog-220) 'D:/Thesis101/hardware/Thesis.mpf' is used as the ini file.
+-- Compiling module cnn_controller
+
+Top level modules:
+	cnn_controller
+
+} {} {}} D:/Thesis101/hardware/RTL/input_sram.v {1 {vlog -work work -vopt -stats=none D:/Thesis101/hardware/RTL/input_sram.v
+Questa Altera Starter FPGA Edition-64 vlog 2025.2 Compiler 2025.05 May 31 2025
+** Note: (vlog-220) 'D:/Thesis101/hardware/Thesis.mpf' is used as the ini file.
+-- Compiling module input_sram
+
+Top level modules:
+	input_sram
+
+} {} {}} D:/Thesis101/hardware/RTL/avalon_slave.v {1 {vlog -work work -vopt -stats=none D:/Thesis101/hardware/RTL/avalon_slave.v
+Questa Altera Starter FPGA Edition-64 vlog 2025.2 Compiler 2025.05 May 31 2025
+** Note: (vlog-220) 'D:/Thesis101/hardware/Thesis.mpf' is used as the ini file.
+-- Compiling module avalon_slave
+
+Top level modules:
+	avalon_slave
+
+} {} {}} D:/Thesis101/hardware/RTL/ping_pong_sram.v {0 {vlog -work work -vopt -stats=none D:/Thesis101/hardware/RTL/ping_pong_sram.v
+Questa Altera Starter FPGA Edition-64 vlog 2025.2 Compiler 2025.05 May 31 2025
+** Note: (vlog-220) 'D:/Thesis101/hardware/Thesis.mpf' is used as the ini file.
+-- Compiling module ping_pong_sram
+** Error: D:/Thesis101/hardware/RTL/ping_pong_sram.v(17): 'Port' must not be declared to be an array: din.
+** Error: D:/Thesis101/hardware/RTL/ping_pong_sram.v(23): 'Port' must not be declared to be an array: dout.
+
+} {5.0 7.0} {}} D:/Thesis101/hardware/testbench/tb_top.v {1 {vlog -work work -vopt -stats=none D:/Thesis101/hardware/testbench/tb_top.v
+Questa Altera Starter FPGA Edition-64 vlog 2025.2 Compiler 2025.05 May 31 2025
+** Note: (vlog-220) 'D:/Thesis101/hardware/Thesis.mpf' is used as the ini file.
+-- Compiling module tb_top
+
+Top level modules:
+	tb_top
+
+} {} {}} D:/Thesis101/hardware/RTL/gap_fc_argmax.v {0 {vlog -work work -vopt -stats=none D:/Thesis101/hardware/RTL/gap_fc_argmax.v
+Questa Altera Starter FPGA Edition-64 vlog 2025.2 Compiler 2025.05 May 31 2025
+** Note: (vlog-220) 'D:/Thesis101/hardware/Thesis.mpf' is used as the ini file.
+-- Compiling module gap_fc_argmax
+** Error: D:/Thesis101/hardware/RTL/gap_fc_argmax.v(22): 'Port' must not be declared to be an array: ping_dout.
+
+} {5.0 6.0} {}} D:/Thesis101/hardware/testbench/tb_cp_block.v {0 {vlog -work work -vopt -stats=none D:/Thesis101/hardware/testbench/tb_cp_block.v
+Questa Altera Starter FPGA Edition-64 vlog 2025.2 Compiler 2025.05 May 31 2025
+** Note: (vlog-220) 'D:/Thesis101/hardware/Thesis.mpf' is used as the ini file.
+-- Compiling module tb_cp_block
+** Error: D:/Thesis101/hardware/testbench/tb_cp_block.v(30): (vlog-2110) Illegal reference to memory "w".
+** Error: D:/Thesis101/hardware/testbench/tb_cp_block.v(30): (vlog-2110) Illegal reference to net array "#implicit-wire#3".
+** Error: D:/Thesis101/hardware/testbench/tb_cp_block.v(30): (vlog-2110) Illegal reference to memory "w".
+** Error: D:/Thesis101/hardware/testbench/tb_cp_block.v(29): (vlog-2110) Illegal reference to memory "taps_in".
+** Error: D:/Thesis101/hardware/testbench/tb_cp_block.v(29): (vlog-2110) Illegal reference to net array "#implicit-wire#2".
+** Error: D:/Thesis101/hardware/testbench/tb_cp_block.v(29): (vlog-2110) Illegal reference to memory "taps_in".
+
+} {5.0 11.0} {}} D:/Thesis101/hardware/testbench/tb_layer.v {1 {vlog -work work -vopt -stats=none D:/Thesis101/hardware/testbench/tb_layer.v
+Questa Altera Starter FPGA Edition-64 vlog 2025.2 Compiler 2025.05 May 31 2025
+** Note: (vlog-220) 'D:/Thesis101/hardware/Thesis.mpf' is used as the ini file.
+-- Compiling module tb_layer
+
+Top level modules:
+	tb_layer
+
+} {} {}} D:/Thesis101/hardware/RTL/cp_block.v {0 {vlog -work work -vopt -stats=none D:/Thesis101/hardware/RTL/cp_block.v
+Questa Altera Starter FPGA Edition-64 vlog 2025.2 Compiler 2025.05 May 31 2025
+** Note: (vlog-220) 'D:/Thesis101/hardware/Thesis.mpf' is used as the ini file.
+-- Compiling module cp_block
+** Error: D:/Thesis101/hardware/RTL/cp_block.v(22): 'Port' must not be declared to be an array: taps_in.
+** Error: D:/Thesis101/hardware/RTL/cp_block.v(25): 'Port' must not be declared to be an array: w.
+
+} {5.0 7.0} {}} D:/Thesis101/hardware/RTL/weight_rom.v {1 {vlog -work work -vopt -stats=none D:/Thesis101/hardware/RTL/weight_rom.v
+Questa Altera Starter FPGA Edition-64 vlog 2025.2 Compiler 2025.05 May 31 2025
+** Note: (vlog-220) 'D:/Thesis101/hardware/Thesis.mpf' is used as the ini file.
+-- Compiling module weight_rom
+-- Compiling module bias_rom
+
+Top level modules:
+	weight_rom
+	bias_rom
+
+} {} {}}

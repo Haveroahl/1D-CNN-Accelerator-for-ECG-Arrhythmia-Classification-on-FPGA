@@ -1,0 +1,10 @@
+// conv3_bias  shape=[8]
+// INT32 scaled bias  nb=6  b_int32 = round(b_float * 2^6)
+00000007
+FFFFFFDC
+FFFFFFF2
+FFFFFFF5
+0000000D
+FFFFFFE5
+FFFFFFFA
+FFFFFFF4

@@ -1,0 +1,36 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Data (large)
+data/
+
+# Quartus output / build
+hardware/fpga/output_files/
+hardware/fpga/db/
+hardware/fpga/incremental_db/
+hardware/fpga/qdb/
+hardware/fpga/tmp-clearbox/
+hardware/fpga/c5_pin_model_dump.txt
+*.qws
+*.smsg
+*.sof
+*.pof
+*.rbf
+*.jdi
+*.jditmp
+*.sld
+*.bak
+
+# Questa / ModelSim sim work
+hardware/fpga/simulation/questa/work/
+hardware/fpga/simulation/questa/rtl_work/
+hardware/fpga/simulation/questa/transcript
+hardware/fpga/simulation/questa/vsim.wlf
+hardware/fpga/simulation/questa/wlft*
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,6 @@
+// fc_bias  scaled by 2^0  (add to acc_int32 before >>nb)
+// Hardware: b_eff = b_float * 2^0,  after >>nb = b_float
+00000000
+00000000
+00000000
+00000000

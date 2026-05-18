@@ -1,0 +1,10 @@
+// conv4_bias  shape=[8]
+// INT32 scaled bias  nb=7  b_int32 = round(b_float * 2^7)
+00000010
+00000027
+00000022
+00000000
+FFFFFFFE
+00000007
+0000001C
+FFFFFFFB

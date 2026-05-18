@@ -1,0 +1,6 @@
+// fc_bias  shape=[4]
+// INT32 scaled bias  nb=0  b_int32 = round(b_float * 2^0)
+00000000
+00000000
+00000000
+00000000

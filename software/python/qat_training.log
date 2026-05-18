@@ -1,0 +1,103 @@
+[INFO] Device: cuda
+[INFO] Loading baseline checkpoint: ./results/best_model.pth
+[INFO] Computing per-layer quantization scales from baseline weights...
+[INFO] Per-layer scales:
+       conv1                          scale=0.007002
+       conv2                          scale=0.007637
+       conv3                          scale=0.007179
+       conv4                          scale=0.004393
+       fc                             scale=0.004353
+[INFO] Wrapping model with fake quantization (INT8, per-layer dynamic scales)...
+[INFO] Loading data from /home/duc/Thesis/data/Chapman
+
+============================================================
+  Chapman ECG Database: /home/duc/Thesis/data/Chapman
+============================================================
+[INFO] Reading /home/duc/Thesis/data/Chapman/Diagnostics.xlsx ...
+[INFO] Total labeled entries: 10646
+[INFO]   Processed 1000/8516 (loaded=1000) ...
+[INFO]   Processed 2000/8516 (loaded=2000) ...
+[INFO]   Processed 3000/8516 (loaded=3000) ...
+[INFO]   Processed 4000/8516 (loaded=4000) ...
+[INFO]   Processed 5000/8516 (loaded=5000) ...
+[INFO]   Processed 6000/8516 (loaded=6000) ...
+[INFO]   Processed 7000/8516 (loaded=7000) ...
+[INFO]   Processed 8000/8516 (loaded=8000) ...
+[INFO] train: 8516 records (missing=0, too_short=0)
+[INFO]   Distribution: {'AFIB': 1781, 'GSVT': 1818, 'SB': 3149, 'SR': 1768}
+[INFO] Reading /home/duc/Thesis/data/Chapman/Diagnostics.xlsx ...
+[INFO] Total labeled entries: 10646
+[INFO]   Processed 1000/1065 (loaded=1000) ...
+[INFO] val: 1065 records (missing=0, too_short=0)
+[INFO]   Distribution: {'AFIB': 226, 'GSVT': 247, 'SB': 360, 'SR': 232}
+[INFO] Reading /home/duc/Thesis/data/Chapman/Diagnostics.xlsx ...
+[INFO] Total labeled entries: 10646
+[INFO]   Processed 1000/1065 (loaded=1000) ...
+[INFO] test: 1065 records (missing=0, too_short=0)
+[INFO]   Distribution: {'AFIB': 218, 'GSVT': 242, 'SB': 380, 'SR': 225}
+
+  Train:  8516 records | 66 batches
+  Val:    1065 records | 9 batches
+  Test:   1065 records | 9 batches
+============================================================
+
+
+[INFO] Starting QAT fine-tuning for 20 epochs
+       Learning rate: 0.0001
+       Optimizer: Adam
+       Loss: CrossEntropyLoss
+
+[ 1/20] ✓ TrLoss=0.1324 TrAcc=95.75% ValLoss=0.1826 ValAcc=93.24% LR=1.00e-04
+[ 2/20]   TrLoss=0.1323 TrAcc=95.68% ValLoss=0.1862 ValAcc=93.52% LR=1.00e-04
+[ 3/20]   TrLoss=0.1314 TrAcc=95.69% ValLoss=0.1843 ValAcc=93.33% LR=1.00e-04
+[ 4/20] ✓ TrLoss=0.1325 TrAcc=95.68% ValLoss=0.1820 ValAcc=92.96% LR=1.00e-04
+[ 5/20]   TrLoss=0.1323 TrAcc=95.58% ValLoss=0.1853 ValAcc=93.05% LR=1.00e-04
+[ 6/20] ✓ TrLoss=0.1324 TrAcc=95.53% ValLoss=0.1818 ValAcc=92.96% LR=1.00e-04
+[ 7/20]   TrLoss=0.1324 TrAcc=95.75% ValLoss=0.1851 ValAcc=93.43% LR=1.00e-04
+[ 8/20]   TrLoss=0.1315 TrAcc=95.69% ValLoss=0.1828 ValAcc=92.96% LR=1.00e-04
+[ 9/20]   TrLoss=0.1316 TrAcc=95.73% ValLoss=0.1859 ValAcc=93.52% LR=1.00e-04
+[10/20]   TrLoss=0.1321 TrAcc=95.73% ValLoss=0.1874 ValAcc=93.43% LR=1.00e-04
+[11/20]   TrLoss=0.1327 TrAcc=95.67% ValLoss=0.1822 ValAcc=93.43% LR=1.00e-04
+[12/20]   TrLoss=0.1301 TrAcc=95.89% ValLoss=0.1838 ValAcc=93.71% LR=1.00e-04
+[13/20] ✓ TrLoss=0.1306 TrAcc=95.66% ValLoss=0.1814 ValAcc=93.24% LR=1.00e-04
+[14/20]   TrLoss=0.1311 TrAcc=95.62% ValLoss=0.1818 ValAcc=93.15% LR=1.00e-05
+[15/20]   TrLoss=0.1300 TrAcc=95.82% ValLoss=0.1823 ValAcc=93.33% LR=1.00e-05
+[16/20]   TrLoss=0.1302 TrAcc=95.79% ValLoss=0.1827 ValAcc=93.33% LR=1.00e-05
+[17/20]   TrLoss=0.1301 TrAcc=95.81% ValLoss=0.1820 ValAcc=93.15% LR=1.00e-05
+[18/20]   TrLoss=0.1292 TrAcc=95.86% ValLoss=0.1819 ValAcc=93.33% LR=1.00e-05
+[19/20]   TrLoss=0.1289 TrAcc=95.85% ValLoss=0.1824 ValAcc=93.33% LR=1.00e-05
+[20/20]   TrLoss=0.1282 TrAcc=95.85% ValLoss=0.1817 ValAcc=93.33% LR=1.00e-05
+
+[INFO] QAT training completed. Best epoch: 13 (val_loss=0.1814)
+
+[INFO] Evaluating QAT model on test set...
+  Accuracy : 0.9474
+  F1-macro : 0.9412
+
+  Class       Precision     Recall         F1    Support
+  --------------------------------------------------
+  AFIB           0.8750     0.9312     0.9022        218
+  GSVT           0.9325     0.9132     0.9228        242
+  SB             0.9817     0.9895     0.9856        380
+  SR             0.9812     0.9289     0.9543        225
+
+  Confusion Matrix (rows=true, cols=pred):
+              AFIB    GSVT      SB      SR
+  AFIB         203      11       2       2
+  GSVT          20     221       0       1
+  SB             3       0     376       1
+  SR             6       5       5     209
+[INFO] Extracting learned weights from quantization-aware layers...
+
+[DONE] Saved QAT INT8 model: ./results/qat_int8/model_qat_int8.pth
+[INFO] Training history saved: ./results/qat_int8/qat_log.csv
+
+============================================================
+  QAT INT8 Summary
+============================================================
+  Baseline (from checkpoint): epoch=100, val_acc=0.9333333333333333
+  QAT result:                 epoch=13, val_loss=0.1814, val_acc=93.24%
+  Test accuracy:              0.9474
+  Test F1-macro:              0.9412
+  Quantization scheme:        INT8 (16-level per-layer dynamic scaling)
+  Memory (1244 params):       ~1.2 KB (INT8) vs ~5 KB (float32)

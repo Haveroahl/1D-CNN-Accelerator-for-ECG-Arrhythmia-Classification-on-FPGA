@@ -1,0 +1,73 @@
+[INFO] Loading checkpoint: ./results/qat_int8/model_qat_int8.pth
+[INFO] Detected QAT checkpoint (c1=4, c2=4, c3=8, c4=8)
+[INFO] Quantization scheme: QAT-INT8  bit_width=8
+[INFO] Checkpoint epoch=?  
+[INFO] Input shift bits: 2  (input_int8 = clamp(x * 2^2, -127, 127))
+
+[INFO] Exporting INT8 weights to ./results/weights_qat_int8/
+       Reading w_int8 directly from checkpoint
+
+  conv1_weight    shape=[4, 1, 5]          w_shift=6  range=[-2,69]
+  conv1_bias     shape=[4]                nb=8  int32_range=[-93,136]
+  conv2_weight    shape=[4, 4, 5]          w_shift=6  range=[-66,38]
+  conv2_bias     shape=[4]                nb=6  int32_range=[-23,5]
+  conv3_weight    shape=[8, 4, 5]          w_shift=6  range=[-65,24]
+  conv3_bias     shape=[8]                nb=6  int32_range=[-36,13]
+  conv4_weight    shape=[8, 8, 5]          w_shift=7  range=[-43,68]
+  conv4_bias     shape=[8]                nb=7  int32_range=[-5,39]
+  fc_weight    shape=[4, 8]             w_shift=8  range=[-113,100]
+  fc_bias     shape=[4]                nb=0  int32_range=[0,0]
+  nb_shifts.mem      (5 entries: per-layer shift bits)
+    [0] conv1      nb=8  (>> 8 bits)
+    [1] conv2      nb=6  (>> 6 bits)
+    [2] conv3      nb=6  (>> 6 bits)
+    [3] conv4      nb=7  (>> 7 bits)
+    [4] fc         nb=0  (>> 0 bits)
+
+  flat_weights.hex   (724 bytes total)
+  ROM layout:
+    conv1   base=   0  weights= 20B  bias= 16B  total= 36B
+    conv2   base=  36  weights= 80B  bias= 16B  total= 96B
+    conv3   base= 132  weights=160B  bias= 32B  total=192B
+    conv4   base= 324  weights=320B  bias= 32B  total=352B
+    fc      base= 676  weights= 32B  bias= 16B  total= 48B
+
+  input_scale.txt    (input_shift_bits=2)
+
+// ============================================================
+// INT8 Weight ROM Address Map
+// Use as Verilog parameters: BASE_ADDR, N_WEIGHTS
+// ============================================================
+// Parameter                        Base (dec)    Count    End (dec)
+// ------------------------------------------------------------------
+// conv1_weight                              0        20            19
+// conv1_bias                               20         4            23
+// conv2_weight                             24        80           103
+// conv2_bias                              104         4           107
+// conv3_weight                            108       160           267
+// conv3_bias                              268         8           275
+// conv4_weight                            276       320           595
+// conv4_bias                              596         8           603
+// fc_weight                               604        32           635
+// fc_bias                                 636         4           639
+// ------------------------------------------------------------------
+// TOTAL                                   640
+// ============================================================
+
+// ---- Hardware config port values ----
+// Layer 0: Cin=1, Cout=4, w_base=0, b_base=20
+// Layer 1: Cin=4, Cout=4, w_base=36, b_base=116
+// Layer 2: Cin=4, Cout=8, w_base=132, b_base=292
+// Layer 3: Cin=8, Cout=8, w_base=324, b_base=644
+.cfg_cin_0(1), .cfg_cin_1(4), .cfg_cin_2(4), .cfg_cin_3(8),
+.cfg_cout_0(4), .cfg_cout_1(4), .cfg_cout_2(8), .cfg_cout_3(8),
+.cfg_w_base_0(0), .cfg_w_base_1(36), .cfg_w_base_2(132), .cfg_w_base_3(324),
+.cfg_b_base_0(20), .cfg_b_base_1(116), .cfg_b_base_2(292), .cfg_b_base_3(644)
+
+============================================================
+  Total weights exported : 640
+  ✓ No clipping (all weights within INT8 range)
+  Output directory       : ./results/weights_qat_int8
+  Quantization scheme    : QAT-INT8
+  Activation shift bits  : YES (in nb_shifts.mem)
+============================================================

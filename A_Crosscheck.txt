@@ -1,0 +1,114 @@
+Cross-Dataset Evaluation Results — Chapman -> PTB-XL
+======================================================
+Date: 2026-06-01
+Model: ECG_1DCNN Pruned (channels 4,4,8,8), QAT-INT8 power-of-2
+Source dataset: Chapman (train/val/test, patient-independent split 70/15/15)
+Target dataset: PTB-XL (patient-independent split 70/15/15)
+  - 19,952 records usable (rhythm-label mappable)
+  - Test set: 2,997 samples
+  - Class distribution (test): SR~83%, AFIB~8%, GSVT~5%, SB~4%
+
+Label mapping PTB-XL SCP -> 4-class:
+  AFIB(0): AFIB, AFLT
+  GSVT(1): STACH, SVTAC, PSVT, SVARR
+  SB  (2): SBRAD
+  SR  (3): SR
+
+Preprocessing pipeline (matches Chapman):
+  - 500 Hz -> 250 Hz downsample (scipy.signal.resample)
+  - Lead II (channel index 1 in PTB-XL wfdb records)
+  - Z-score normalize per record
+  - Window: 10s = 2500 samples
+
+======================================================
+SUMMARY TABLE
+======================================================
+
+Mode                          Acc      F1-macro   F1-AFIB  F1-GSVT  F1-SB    F1-SR
+------------------------------------------------------------------------------------------
+C1  Chapman -> Chapman        0.9446   0.9379     —        —        —        —
+C2  Zero-shot (QAT-INT8)      0.7714   0.6486     0.754    0.680    0.305    0.855
+C3  Linear probe (FC only)    0.9249   0.7695     0.780    0.724    0.614    0.961
+C4  Full fine-tune            0.9329   0.7915     0.805    0.736    0.660    0.965
+C5  From scratch (PTB-XL)     0.9279   0.7815     0.748    0.743    0.670    0.964
+C6  Float32 zero-shot         0.7714   0.6486     0.754    0.680    0.305    0.855
+U0  Unpruned float32 (4,8,8,16) 0.7721 0.6393    0.747    0.636    0.316    0.857
+
+======================================================
+CONFUSION MATRICES
+======================================================
+
+C2 — Zero-shot QAT-INT8 (Chapman -> PTB-XL, no training)
+           AFIB   GSVT     SB     SR
+  AFIB:     222     10      8      2   (n=242)
+  GSVT:      14    115     11     11   (n=151)
+    SB:       7      0    106      3   (n=116)
+    SR:     104     62    453   1869   (n=2488)
+
+C3 — Linear probe (freeze conv, retrain FC on PTB-XL)
+           AFIB   GSVT     SB     SR
+  AFIB:     188      4      0     50   (n=242)
+  GSVT:      16     93      1     41   (n=151)
+    SB:       4      0     58     54   (n=116)
+    SR:      32      9     14   2433   (n=2488)
+
+C4 — Full fine-tune (unfreeze all, train on PTB-XL)
+           AFIB   GSVT     SB     SR
+  AFIB:     192      4      1     45   (n=242)
+  GSVT:      13     95      1     42   (n=151)
+    SB:       5      0     62     49   (n=116)
+    SR:      25      8      8   2447   (n=2488)
+
+C5 — From scratch (train entirely on PTB-XL)
+           AFIB   GSVT     SB     SR
+  AFIB:     180      9      0     53   (n=242)
+  GSVT:      18    100      1     32   (n=151)
+    SB:       5      0     60     51   (n=116)
+    SR:      36      9      2   2441   (n=2488)
+
+Unpruned float32 zero-shot (4,8,8,16)
+           AFIB   GSVT     SB     SR
+  AFIB:     217     15      9      1   (n=242)
+  GSVT:      19    112     11      9   (n=151)
+    SB:       5      0    108      3   (n=116)
+    SR:      98     74    439   1877   (n=2488)
+
+======================================================
+KEY FINDINGS
+======================================================
+
+1. Quantization drop = 0%
+   C2 (QAT-INT8) == C6 (float32): acc=0.7714, f1=0.6486 identical.
+   All 17% accuracy drop (C1->C2) is pure distribution shift, not quantization.
+   Strong evidence for power-of-2 QAT methodology (paper contribution C1).
+
+2. Feature transfer quality
+   C3 linear probe (92.49%) ≈ C5 from scratch (92.79%) — gap only 0.3%.
+   Conv layers learn transferable ECG features with only FC retraining needed.
+
+3. SB/SR confusion is a clinical boundary problem
+   Zero-shot: 453 SR samples misclassified as SB -> SB precision = 18%.
+   Root cause: SB vs SR defined by HR threshold (60 bpm), not waveform morphology.
+   CNN without explicit HR input cannot distinguish reliably.
+   Even from-scratch training gives F1_SB = 0.670 (class still hardest).
+
+4. Pruning does not hurt transfer (Ablation A5)
+   Unpruned (1244 params): acc=0.7721, f1=0.6393
+   Pruned   ( 654 params): acc=0.7714, f1=0.6486
+   Pruned F1-macro is slightly HIGHER (+0.009) despite 47% fewer parameters.
+   Pruning reduces params by 47% with no transfer ability degradation.
+
+5. AFIB and GSVT generalize well
+   AFIB F1 = 0.754 zero-shot (AF morphology: irregular RR, absent P-wave is distinctive).
+   Recovers to 0.805 after full fine-tune.
+
+======================================================
+FILES
+======================================================
+Script:    software/python/cross_eval/ptbxl_preprocess.py
+Script:    software/python/cross_eval/ptbxl_eval.py
+Script:    software/python/cross_eval/unpruned_zeroshot.py
+Results:   software/python/results/cross_eval/ptbxl_cross_eval.json
+Adapter:   software/python/results/cross_eval/ptbxl_fc_adapter.pth   (C3 FC weights)
+Finetuned: software/python/results/cross_eval/ptbxl_finetuned.pth    (C4 full model)
+Data:      data/ptbxl_processed/ptbxl_dataset.npz

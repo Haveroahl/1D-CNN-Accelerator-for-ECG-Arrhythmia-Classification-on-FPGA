@@ -30,8 +30,7 @@ module gap_fc_argmax (
     // Loaded from fc_weights.hex — layout row-major [k][i]
 
     // Outputs
-    output wire [1:0]  result,         // argmax class index
-    output wire        done            // 1-cycle pulse
+    output wire [1:0]  result          // argmax class index
 );
 
     // ── Sub-state encoding (must match cnn_controller) ─────────────────────
@@ -211,7 +210,8 @@ module gap_fc_argmax (
     end
 
     // ── Outputs ────────────────────────────────────────────────────────────
-    assign done   = (fc_sub_state == DONE_S);
+    // Note: cnn_controller tracks completion via fc_sub_state==DONE_SUB directly,
+    // so no separate `done` output needed here.
     assign result = argmax_idx;
 
 endmodule

@@ -59,7 +59,6 @@ module ecg_accelerator_top (
 
     // ── CP engine ──────────────────────────────────────────────────────
     wire        cp_pool_write;      // from cp_engine (representative ch0)
-    wire [8:0]  cp_pong_wr_addr;
     wire [63:0] cp_pong_din;        // packed: cp_pong_din[ch*8+:8]
     wire [7:0]  cp_pong_we;
     wire [11:0] cp_sram_rd_addr;
@@ -67,7 +66,6 @@ module ecg_accelerator_top (
     // ── GAP/FC/Argmax ──────────────────────────────────────────────────
     wire [8:0]  gap_rd_addr;
     wire [1:0]  gap_result;
-    wire        gap_done;           // unused at top — controller tracks via fc_sub_state
 
     // ── Pool write: cp_engine ch0 pool_write feeds controller ──────────
     // All active cp_blocks write simultaneously — ch0 is representative.
@@ -111,7 +109,7 @@ module ecg_accelerator_top (
     ping_pong_sram u_pp (
         .clk     (clk),
         .bank_sel(ctrl_bank_sel),
-        .wr_addr (cp_pong_wr_addr),
+        .wr_addr (ctrl_pong_addr[8:0]),
         .din     (cp_pong_din),
         .we      (cp_pong_we),
         .rd_addr (pp_rd_addr),
@@ -135,8 +133,6 @@ module ecg_accelerator_top (
         .pool_rst         (ctrl_pool_rst),
         .input_sram_dout  (input_sram_dout),
         .ping_dout        (pp_dout),
-        .pong_wr_addr     (cp_pong_wr_addr),
-        .pong_addr_in     (ctrl_pong_addr[8:0]),
         .pong_din         (cp_pong_din),
         .pong_we          (cp_pong_we),
         .sram_rd_addr     (cp_sram_rd_addr),
@@ -153,8 +149,7 @@ module ecg_accelerator_top (
         .argmax_step  (ctrl_argmax_step),
         .ping_dout    (pp_dout),
         .gap_rd_addr  (gap_rd_addr),
-        .result       (gap_result),
-        .done         (gap_done)
+        .result       (gap_result)
     );
 
     // ── cnn_controller ─────────────────────────────────────────────────
@@ -166,7 +161,6 @@ module ecg_accelerator_top (
         .a            (ctrl_a),
         .t            (ctrl_t),
         .shift_en     (ctrl_shift_en),
-        .sram_addr_en (),
         .srw_rst      (ctrl_srw_rst),
         .compute_en   (ctrl_compute_en),
         .in_ch        (ctrl_in_ch),

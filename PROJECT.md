@@ -124,25 +124,57 @@ python3 export_weights_int8.py \
 
 ---
 
-## Trạng thái tiến độ
+## Trạng thái tiến độ (cập nhật 2026-05-30)
 
-### Software — Cần re-train với channels mới (4,4,8,8)
-- Re-prune model với target channels: Conv1=4, Conv2=4, Conv3=8, Conv4=8
-- Re-run QAT-INT8 với model pruned mới
-- Re-export `flat_weights.hex` và golden files
+### Software — ✅ DONE (baseline)
+- [x] Re-prune model → channels (4,4,8,8) — `best_model_pruned.pth`
+- [x] QAT-INT8 power-of-2 round-half-up — `qat_int8/model_qat_int8.pth` (94.65% acc, F1 0.9404)
+- [x] Export `flat_weights.hex` (580 INT8 entries, không comment lines)
+- [x] Golden `.mem` files (21 checkpoints / sample × 3 samples) — `results/golden/`
 
-### Hardware — Đang cải tiến design cũ (hardware/RTL/)
+### Hardware — ✅ DONE (baseline verify)
 > Chi tiết kiến trúc, datapath, timing: @hardware/System_Design.md
-- Design hiện có: SIMD PE array + ping-pong SRAM + FSM controller
-- Cần cập nhật để match channels mới (4,4,8,8) và FC(8→4)
+- [x] 8 RTL modules (cp_block, cp_engine, controller, gap_fc_argmax, ping_pong_sram, input_sram, top, avalon_slave)
+- [x] Testbench tb_top.v — **21/21 bit-exact PASS** với golden Python (3 samples)
+- [x] Latency đo thật: **5216 cycles ≈ 52.16 µs @ 100 MHz** (deterministic)
+- [x] Throughput: ~19,200 inference/s @ 100 MHz
+- [x] SDC 100/150 MHz chuẩn bị sẵn (chưa synthesis)
 
-### TODO
-1. [ ] Re-prune model → channels (4,4,8,8)
-2. [ ] Re-run QAT-INT8 → export weights + golden files
-3. [ ] Cập nhật hardware/RTL/ cho channels mới
-4. [ ] Verify simulation với golden files mới
-5. [ ] Synthesis trên Quartus, timing closure
-6. [ ] Validation end-to-end trên DE10-Nano
+---
+
+## Phase tiếp theo — Roadmap Q3 paper (3 tuần)
+
+> Chi tiết novelty, methodology, paper structure: @Paper_Proposal_Q3.md
+> Cross-dataset evaluation plan: @Phase_3_evaluate.md
+
+**Story paper Q3** (Hướng 3 a+c, target Electronics MDPI hoặc Sensors MDPI):
+- **C1 — Power-of-2 QAT methodology** với ablation định lượng vs general-scale INT8.
+- **C2 — Bit-exact verification framework** (21 checkpoints Python↔RTL).
+- **C3 — Cross-dataset transfer study** Chapman ↔ MIT-BIH trên FPGA INT8.
+- **C4 — IP core architecture** (52 µs/inference, 5K cycles).
+- **C5 — Lightweight Avalon weight reload** (enabling mechanism cho C3).
+- **Wearable angle**: power-of-2 → 0 DSP rescale → low energy → fit wearable monitoring.
+
+### Block 1 — WSL (Software, ~1 tuần)
+- [ ] Phase A' — chạy `qat_int8_general.py` (A3 general-scale variant) — *script đã viết*
+- [ ] Phase A' — fork A4 (floor truncation): bỏ `+2^(nb-1)` trong rescale
+- [ ] Phase A' — 5-fold patient-independent split runner cho A2/A3/A4
+- [ ] Phase A — MIT-BIH download (wfdb) + preprocess 360→500Hz lead II
+- [ ] Phase A — 5 mode eval: zero-shot / linear probe / full fine-tune / from-scratch / float32 baseline
+
+### Block 2 — Windows (Hardware, ~1 tuần)
+- [ ] Phase B — refactor weight ROM → weight RAM (dual-port M10K), Avalon-MM loader
+- [ ] Phase B — mở rộng avalon_slave 5-bit → 12-bit address
+- [ ] Phase B — regression sim: 21/21 bit-exact phải tiếp tục PASS với weight load via Avalon
+- [ ] Phase C — Quartus Compile (5CSXFC6D6F31C6), TimeQuest Fmax
+- [ ] Phase C — PowerPlay với `.vcd` activity → dynamic + static power → energy/inference
+- [ ] Phase D — DE10-Standard program + HPS driver C (`ecg_classify.c`)
+- [ ] Phase D — verify on-board accuracy ~94.65%, load MIT-BIH weight → match Phase A
+
+### Block 3 — Writing (any env, ~1 tuần)
+- [ ] Phase E — bảng SoTA 6-8 papers ECG-FPGA + Pareto chart
+- [ ] Phase F — draft 8-12 trang Electronics MDPI template
+- [ ] Phase F — GitHub public + Zenodo DOI reproducibility artifact
 
 ---
 

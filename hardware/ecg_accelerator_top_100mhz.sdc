@@ -3,14 +3,15 @@
 # Project  : CNN Accelerator — ECG Arrhythmia Classification
 # Top      : ecg_accelerator_top
 # Device   : Intel Cyclone V (DE10-Standard, 5CSXFC6D6F31C6, speed grade -6)
-# Target   : 100 MHz (standard / fallback target)
+# Target   : 100 MHz (standard target)
 # =============================================================================
 #
-# Standard design target per System_Design.md. Use this SDC if the 150 MHz
-# experimental constraint (ecg_accelerator_top_150mhz.sdc) fails timing closure.
-#
-# All critical paths (S6 RESCALE, S5b ACC_FINAL, S_bias, FC ACC) have ~3 ns
-# slack at 100 MHz — comfortable, no risk.
+# Standard design target per System_Design.md.
+# After ping_pong_sram refactor (16 M10K inference), worst internal path:
+#   cnn_controller.a[*] -> cp_engine.mux_s1[*]   ~10.7 ns
+# Slack at 100 MHz ≈ -0.7 ns (borderline) — enable Quartus Performance High
+# Effort + register retiming to close timing without RTL changes.
+# Fallback: ecg_accelerator_top_100mhz.sdc.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -45,7 +46,7 @@ set_false_path -from [get_ports rst]
 # -----------------------------------------------------------------------------
 # 5. Multicycle Paths
 # -----------------------------------------------------------------------------
-# At 100 MHz all internal paths have ~3 ns slack. No exceptions required.
+# Not required — Quartus retiming handles internal balance.
 
 # -----------------------------------------------------------------------------
 # 6. Generated Clocks (PLL)

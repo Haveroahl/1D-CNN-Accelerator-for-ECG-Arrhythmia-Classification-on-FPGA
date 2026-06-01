@@ -18,7 +18,6 @@ module cnn_controller (
     output reg  [3:0]  a,             // channel counter 0..IN_CH-1
     output reg  [11:0] t,             // output position counter
     output wire        shift_en,      // = (a == in_ch - 1)
-    output wire        sram_addr_en,  // = (a == in_ch - 2), issue SRAM addr 1cy early
     output reg         srw_rst,       // SRW clear pulse (1 cycle)
     output reg         compute_en,    // pipeline enable
     output reg  [3:0]  in_ch,         // current layer IN_CH
@@ -76,8 +75,6 @@ module cnn_controller (
     // For pre-fetch and boundary: controller issues addr, srw_din=0 if out of range (handled in cp_engine)
 
     assign shift_en    = (a == in_ch - 4'd1);
-    assign sram_addr_en = (in_ch == 4'd1) ? 1'b1         // Conv1: always issue
-                                           : (a == in_ch - 4'd2);
 
     // sram_rd_addr: output position t minus padding (2 taps ahead)
     // Exposed as wire so top-level can route to both input_sram and ping_pong_sram
@@ -278,9 +275,14 @@ module cnn_controller (
                 end
 
                 // ── DONE_S ─────────────────────────────────────────────
+                // Hold result until next rst or start. Accept new start pulse
+                // to enable streaming use case (back-to-back windows without rst).
                 DONE_S: begin
                     busy <= 1'b0;
-                    // Hold result until next rst or start
+                    if (start) begin
+                        layer_state <= LOAD_INPUT;
+                        busy        <= 1'b1;
+                    end
                 end
 
                 default: layer_state <= IDLE;

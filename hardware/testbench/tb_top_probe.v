@@ -349,15 +349,21 @@ module tb_top_probe;
         output [1:0] cls;
         output integer cycles;
         reg [31:0] status;
+        time         t_start, t_end;
+        integer      poll_iter;
         begin
             avs_wr(5'h03, 32'd1);
-            cycles = 0;
-            status = 1;
-            while (status[0] && cycles < 10000) begin
+            @(posedge clk); #1;
+            t_start   = $time;
+            poll_iter = 0;
+            status    = 1;
+            while (status[0] && poll_iter < 10000) begin
                 @(posedge clk); #1;
                 avs_rd(5'h04, status);
-                cycles = cycles + 1;
+                poll_iter = poll_iter + 1;
             end
+            t_end  = $time;
+            cycles = (t_end - t_start) / 10;  // 10ns clock period
             avs_rd(5'h05, status);
             cls = status[1:0];
         end
@@ -416,12 +422,22 @@ module tb_top_probe;
         end
     endtask
 
-    // ── Helpers: read flat ping_pong memory (mem_a/mem_b [0:3999], idx=ch*500+pos)
+    // ── Helpers: read per-channel ping_pong memory (16 separate arrays) ─
     function [7:0] read_mem_a;
         input integer ch;
         input integer pos;
         begin
-            read_mem_a = u_top.u_pp.mem_a[ch*500 + pos];
+            case (ch)
+                0: read_mem_a = u_top.u_pp.mem_a_ch0[pos];
+                1: read_mem_a = u_top.u_pp.mem_a_ch1[pos];
+                2: read_mem_a = u_top.u_pp.mem_a_ch2[pos];
+                3: read_mem_a = u_top.u_pp.mem_a_ch3[pos];
+                4: read_mem_a = u_top.u_pp.mem_a_ch4[pos];
+                5: read_mem_a = u_top.u_pp.mem_a_ch5[pos];
+                6: read_mem_a = u_top.u_pp.mem_a_ch6[pos];
+                7: read_mem_a = u_top.u_pp.mem_a_ch7[pos];
+                default: read_mem_a = 8'h00;
+            endcase
         end
     endfunction
 
@@ -429,7 +445,17 @@ module tb_top_probe;
         input integer ch;
         input integer pos;
         begin
-            read_mem_b = u_top.u_pp.mem_b[ch*500 + pos];
+            case (ch)
+                0: read_mem_b = u_top.u_pp.mem_b_ch0[pos];
+                1: read_mem_b = u_top.u_pp.mem_b_ch1[pos];
+                2: read_mem_b = u_top.u_pp.mem_b_ch2[pos];
+                3: read_mem_b = u_top.u_pp.mem_b_ch3[pos];
+                4: read_mem_b = u_top.u_pp.mem_b_ch4[pos];
+                5: read_mem_b = u_top.u_pp.mem_b_ch5[pos];
+                6: read_mem_b = u_top.u_pp.mem_b_ch6[pos];
+                7: read_mem_b = u_top.u_pp.mem_b_ch7[pos];
+                default: read_mem_b = 8'h00;
+            endcase
         end
     endfunction
 

@@ -9,7 +9,7 @@ S1       5×MULT              reg     1 cy      DSP18, 8×8 signed → 16-bit
 S2       ADDER stage-1       reg     1 cy      sum01, sum23, delay prod[4]
 S3       ADDER stage-2       reg     1 cy      sum0123, delay prod[4]
 S4       ADDER stage-3       reg     1 cy      tree_out (20-bit)
-S5       ACC × IN_CH         reg     IN_CH cy  RST khi a_d6=0, ACC khi a_d6=IN_CH-1
+S5       ACC × IN_CH         reg     IN_CH cy  RST khi a_in(=a_d5)=0, accumulate while compute_en_in
 S5b      ACC_FINAL           reg     1 cy      acc + tree_sext → acc_final_r (1 adder)
 S_bias   +BIAS               reg     1 cy      acc_final_r + bias_in (1 adder)
 S6       RESCALE stage-1     reg     1 cy      (biased + round_add) >>> nb
@@ -20,9 +20,10 @@ S9       MaxPool comparator  reg     1 cy/hit  rolling max, chốt sau 5 relu_v
 Total    IN_CH + 9 cycles/output_position (steady-state)
 ```
 
-**Delay chain:** MUX_reg(1) + WROM_reg(1) + MULT(1) + TREE(3) = 6 cycles → a_d6, inch_d6, ce_d6
+**Delay chain:** mux_s1(1) + MULT(1) + TREE(3) = **5 cycles** → `a_d5, inch_d5, ce_d5` feed cp_block (`a_in, in_ch, compute_en_in`).
 
-**out_valid:** `compute_en_in && (a_in == in_ch - 1)`  (dùng a_d6, ce_d6 từ cp_engine)
+
+**out_valid:** `compute_en_in && (a_in == in_ch - 1)` — `a_in == a_d5`, `compute_en_in == ce_d5`. RST acc khi `a_in == 0`, S5b acc_final_r latch tổng cuối khi out_valid.
 
 **Valid chain:** `out_valid → acc_final_v → bias_valid → rescale_v1 → rescale_v2 → relu_v`
 
@@ -53,10 +54,13 @@ Conv4    8      17 cycles       1 output / 8 cy
 **Tổng cycles per layer (xấp xỉ):**
 ```
 Conv1:  2500 × 1 = 2500 cy
-Conv2:   500 × 4 = 2000 cy  (+ 20 pre-fetch)
+Conv2:   500 × 4 = 2000 cy
 Conv3:   100 × 4 =  400 cy
 Conv4:    20 × 8 =  160 cy
-Total  ~5060 cy @ 100MHz ≈ 50.6 µs/inference  (8 CP blocks parallel)
+GAP/FC/Argmax    =   22 cy
+Layer transitions + pipeline flush ≈ 134 cy
+Total measured (testbench $time)   = 5216 cy ≈ 52.16 µs @ 100 MHz
+Throughput                         ≈ 19,200 inference/s
 ```
 
 ## SRW — Shift Register Window
@@ -67,9 +71,11 @@ Total  ~5060 cy @ 100MHz ≈ 50.6 µs/inference  (8 CP blocks parallel)
 shift_en = (a == in_ch - 1)  → shift tất cả SRW, nhận srw_din[ch]
 srw_rst  = 1 cycle pulse      → clear về 0 (layer transition)
 
-Zero-padding:
-  Conv1 (in_ch==1): pad khi sram_rd_addr_in <= 12'd2
-  Conv2..4         : pad khi sram_rd_addr_in <  12'd2
+Zero-padding (đồng nhất mọi layer, K=5 pad=2):
+  pad_zero_pre = (sram_rd_addr_in < 12'd2)              // front pad (negative addr)
+              || (sram_rd_addr_in >= in_len + 12'd2);   // back pad  (out of valid range)
+  pad_zero_r   = registered 1 cy → align với SRAM 1-cy synchronous read latency
+                 (reset = 1 khi srw_rst).
 ```
 
 ## MaxPool Rolling Comparator
@@ -79,7 +85,8 @@ always @(posedge clk) begin
     pool_write_r <= 1'b0;
     if (rst || pool_rst) begin
         pool_cnt <= 3'd0; pool_write_r <= 1'b0;
-    end else if (relu_v) begin
+    end else if (relu_v && compute_en_in) begin
+        // gated bởi compute_en_in (=ce_d5) để loại junk từ SRW priming phase
         if (pool_cnt == 3'd0)         max_reg <= relu_out;
         else if (relu_out > max_reg)  max_reg <= relu_out;
 
@@ -97,25 +104,30 @@ end
 ## Timing Diagram (IN_CH=8, out_pos=0)
 
 ```
-Cycle   S1(mult) S2(add1) S3(add2) S4(tree) a_d6  ACC       S5b(af) S_bias  S6      S7      S8    POOL
+Anchor: cycle N = a==0 at mux_comb (= a_d5==0 at edge cy N+5).
+
+Cycle   S1(mult) S2(add1) S3(add2) S4(tree) a_d5  ACC       S5b(af) S_bias  S6      S7      S8    POOL
  N+0    ch0×w
  N+1    ch1×w    Σ01,23
  N+2    ch2×w    Σ01,23   Σ0123
- N+3    ch3×w    Σ01,23   Σ0123    tree_ch0  0     RST←t0
- N+4    ch4×w    Σ01,23   Σ0123    tree_ch1  1     +=tree1
- N+5    ch5×w    Σ01,23   Σ0123    tree_ch2  2     +=tree2
- N+6    ch6×w    Σ01,23   Σ0123    tree_ch3  3     +=tree3
- N+7    ch7×w    Σ01,23   Σ0123    tree_ch4  4     +=tree4
- N+8    ch0'×w   Σ01,23   Σ0123    tree_ch5  5     +=tree5
- N+9    ch1'×w   Σ01,23   Σ0123    tree_ch6  6     +=tree6
- N+10   ch2'×w   Σ01,23   Σ0123    tree_ch7  7     (OUT)     af_r←  
- N+11   ch3'×w   ...               tree_ch0' 0     RST(pos1)          bias←   
- N+12                                                                   bias    shift
- N+13                                                                           clamp
- N+14                                                                           relu
- N+18                                                                                   pool_write★
-★ pool_write sau 5 relu_v → ghi Pong SRAM
-af_r = acc_final_r (S5b); bias = biased (S_bias)
+ N+3    ch3×w    Σ01,23   Σ0123    tree_ch0
+ N+4    ch4×w    Σ01,23   Σ0123    tree_ch1
+ N+5    ch5×w    Σ01,23   Σ0123    tree_ch2  0     RST←tree_ch0
+ N+6    ch6×w    Σ01,23   Σ0123    tree_ch3  1     +=tree_ch1
+ N+7    ch7×w    Σ01,23   Σ0123    tree_ch4  2     +=tree_ch2
+ N+8    ch0'×w   Σ01,23   Σ0123    tree_ch5  3     +=tree_ch3
+ N+9    ch1'×w   Σ01,23   Σ0123    tree_ch6  4     +=tree_ch4
+ N+10   ch2'×w   Σ01,23   Σ0123    tree_ch7  5     +=tree_ch5
+ N+11   ch3'×w   ...               tree_ch0' 6     +=tree_ch6
+ N+12   ch4'×w                     tree_ch1' 7=IC-1 acc_final_r←acc+tree_ch7  (out_valid)
+ N+13                                                       biased←af_r+bias
+ N+14                                                                shifted←(biased+round_add)>>>nb
+ N+15                                                                        clamped
+ N+16                                                                                relu_v↑ ─┐
+ ...     (sau đủ 5 relu_v cho window)                                                         │
+                                                                                  pool_write★
+★ pool_write: rolling comparator chốt sau 5 relu_v liên tiếp → ghi Pong SRAM.
+af_r = acc_final_r (S5b); biased = S_bias output. Khoảng cách giữa các relu_v = IN_CH cycles (1/4/4/8).
 ```
 
 ## Bảng Chân Trị SRW (Conv4, K=5, pad=2)

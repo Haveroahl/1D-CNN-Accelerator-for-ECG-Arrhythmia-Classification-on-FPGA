@@ -62,11 +62,10 @@ gap_step  gap_rd_addr  pong_dout valid   Action
 ```verilog
 reg signed [9:0]  gap_acc [0:7];
 reg signed [7:0]  gap_reg [0:7];
-reg [1:0]         gap_rd_addr;    // 2-bit, broadcast to ping_pong_sram
-// gap_rd_addr exposed as [8:0] wire (sign-extended) to match pp_sram port
+output reg [8:0]  gap_rd_addr;    // 9-bit port matches ping_pong_sram.rd_addr;
+                                  // chỉ giá trị 0..3 được dùng (combinational case
+                                  // trên gap_step), các bit cao luôn 0.
 ```
-
-**Note:** `gap_rd_addr` trong gap_fc_argmax.v là [8:0] để match port `ping_pong_sram.rd_addr[8:0]`. Chỉ [1:0] thực sự dùng.
 
 ## FC Phase (10 cycles + 1 flush)
 

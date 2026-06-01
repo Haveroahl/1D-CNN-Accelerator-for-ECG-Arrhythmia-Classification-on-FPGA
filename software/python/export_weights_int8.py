@@ -12,23 +12,21 @@ INT8 Format (fphys)
              nb_l = ceil(log2(max_dataset |O_l| / 127))
              Hardware: (acc + (1 << (nb-1))) >>> nb  (round-half-up, signed)
 
-Output Files
-------------
-  RTL hex files (consumed by cp_engine.v / gap_fc_argmax.v via $readmemh):
-    - conv1_w.hex   (4  × 40b, addr = oc)
-    - conv2_w.hex   (16 × 40b, addr = oc*4 + ic)
-    - conv3_w.hex   (32 × 40b, addr = oc*4 + ic)
-    - conv4_w.hex   (64 × 40b, addr = oc*8 + ic)
-    - conv_bias.hex (32 × INT32, addr = oc*4 + layer_idx)
-    - fc_weights.hex (32 × INT8, addr = k*8 + i)
+Output Files (Verilog RTL $readmemh format)
+-----------
+  Essential for RTL:
+    - conv1_w.hex       (4  × 40b, addr = oc)
+    - conv2_w.hex       (16 × 40b, addr = oc*4 + ic)
+    - conv3_w.hex       (32 × 40b, addr = oc*4 + ic)
+    - conv4_w.hex       (64 × 40b, addr = oc*8 + ic)
+    - conv_bias.hex     (32 × INT32, addr = oc*4 + layer_idx)
+    - fc_weights.hex    (32 × INT8, addr = k*8 + i)
+    - nb_shifts.mem     (per-layer activation shift bits)
 
-  Per-layer .mem dumps (debug / legacy):
-    - conv1_weight.mem, conv1_bias.mem, ..., fc_weight.mem, fc_bias.mem
-
-  Special:
-    - nb_shifts.mem      (per-layer nb values, 2-char hex integer)
-    - flat_weights.hex   (all INT8 weights + INT32 bias bytes concatenated; legacy)
+  Metadata & reference:
     - weights_summary.json
+    - input_scale.txt
+    - rom_address_map.txt
 
 Usage
 -----
@@ -265,12 +263,11 @@ def export_all(checkpoint_path: str, output_dir: str):
         print("[WARNING] No nb found in checkpoint. Using nb=0 for all layers.")
         nb_dict = {name: 0 for name in LAYER_ORDER}
 
-    # ---- Per-layer export ----
+    # ---- Build summary (for JSON metadata only) ----
     print(f"\n[INFO] Exporting INT8 weights to {output_dir}/")
     print(f"       Reading w_int8 directly from checkpoint\n")
 
     summary = []
-    all_int8 = []
 
     for layer_name in LAYER_ORDER:
         shift_bits = w_shifts_dict.get(layer_name, 0)
@@ -286,13 +283,6 @@ def export_all(checkpoint_path: str, output_dir: str):
             w_int8 = np.clip(np.round(w_float * (2 ** shift_bits)), -127, 127).astype(np.int32)
             print(f"  [WARNING] {layer_name}: w_int8 not in checkpoint, quantizing float weights")
 
-        mem_path = os.path.join(output_dir, f"{layer_name}_weight.mem")
-        with open(mem_path, 'w') as f:
-            f.write(f"// {layer_name}_weight  shape={list(w_int8.shape)}\n")
-            f.write(f"// INT8 signed integer  w_shift={shift_bits}  (scale=2^{shift_bits})\n")
-            for v in w_int8.flatten():
-                f.write(int8_to_hex2(int(v)) + "\n")
-
         w_info = {
             'param': f"{layer_name}_weight",
             'shape': list(w_int8.shape),
@@ -301,21 +291,12 @@ def export_all(checkpoint_path: str, output_dir: str):
             'int8_range': [int(w_int8.min()), int(w_int8.max())],
         }
         summary.append(w_info)
-        all_int8.extend(w_int8.flatten().tolist())
-
         print(f"  {layer_name}_weight    shape={str(list(w_int8.shape)):<18} w_shift={shift_bits}  range=[{w_int8.min()},{w_int8.max()}]")
 
-        # --- Bias: scale to INT32 = round(b_float * 2^nb) ---
+        # --- Bias: for metadata ---
         if layer_name in b_float_ckpt:
             b_float = np.array(b_float_ckpt[layer_name], dtype=np.float64)
             b_int32 = np.clip(np.round(b_float * (2 ** nb)), -(2**31), 2**31 - 1).astype(np.int64)
-
-            mem_path = os.path.join(output_dir, f"{layer_name}_bias.mem")
-            with open(mem_path, 'w') as f:
-                f.write(f"// {layer_name}_bias  shape={list(b_float.shape)}\n")
-                f.write(f"// INT32 scaled bias  nb={nb}  b_int32 = round(b_float * 2^{nb})\n")
-                for v in b_int32.flatten():
-                    f.write(int32_to_hex8(int(v)) + "\n")
 
             b_info = {
                 'param': f"{layer_name}_bias",
@@ -325,7 +306,6 @@ def export_all(checkpoint_path: str, output_dir: str):
                 'int32_range': [int(b_int32.min()), int(b_int32.max())],
             }
             summary.append(b_info)
-
             print(f"  {layer_name}_bias     shape={str(list(b_float.shape)):<18} nb={nb}  int32_range=[{b_int32.min()},{b_int32.max()}]")
 
     # ---- Export nb as activation shift ROM ----
@@ -343,47 +323,6 @@ def export_all(checkpoint_path: str, output_dir: str):
         nb = nb_dict.get(name, 0)
         print(f"    [{i}] {name:10s} nb={nb}  (>> {nb} bits)")
 
-    # ---- Flat ROM for hardware: per-layer [weights | bias_bytes] ----
-    # Bias stored as INT32 little-endian (4 bytes per value)
-    # Layout matches cnn_accelerator_top weight_bank loading logic
-    flat_path = os.path.join(output_dir, 'flat_weights.hex')
-    rom_entries = []
-    rom_map = []
-    base = 0
-    for layer_name in LAYER_ORDER:
-        nb = nb_dict.get(layer_name, 0)
-        # Weights (INT8)
-        if layer_name in w_int8_ckpt:
-            w = np.array(w_int8_ckpt[layer_name], dtype=np.int32).flatten()
-        else:
-            w = np.array([], dtype=np.int32)
-        w_bytes = [int(v) & 0xFF for v in w]
-        # Bias (INT32 → 4 bytes little-endian)
-        b_bytes = []
-        if layer_name in b_float_ckpt:
-            b_float = np.array(b_float_ckpt[layer_name], dtype=np.float64)
-            b_int32 = np.clip(np.round(b_float * (2 ** nb)), -(2**31), 2**31-1).astype(np.int64)
-            for v in b_int32:
-                iv = int(v) & 0xFFFFFFFF
-                b_bytes += [(iv >> 0) & 0xFF, (iv >> 8) & 0xFF,
-                            (iv >> 16) & 0xFF, (iv >> 24) & 0xFF]
-        rom_map.append({
-            'layer': layer_name, 'base': base,
-            'n_weights': len(w_bytes), 'n_bias_bytes': len(b_bytes),
-            'total': len(w_bytes) + len(b_bytes)
-        })
-        rom_entries += w_bytes + b_bytes
-        base += len(w_bytes) + len(b_bytes)
-
-    with open(flat_path, 'w') as f:
-        for entry in rom_entries:
-            f.write(f"{entry & 0xFF:02X}\n")
-
-    print(f"\n  flat_weights.hex   ({len(rom_entries)} bytes total)")
-    print(f"  ROM layout:")
-    for m in rom_map:
-        print(f"    {m['layer']:6s}  base={m['base']:4d}  weights={m['n_weights']:3d}B"
-              f"  bias={m['n_bias_bytes']:3d}B  total={m['total']:3d}B")
 
     # ---- RTL hex files: conv_weights.hex, conv_bias.hex, fc_weights.hex ----
     export_rtl_hex(w_int8_ckpt, b_float_ckpt, nb_dict, output_dir)
@@ -421,21 +360,19 @@ def export_all(checkpoint_path: str, output_dir: str):
     print_address_map(summary, output_dir)
 
     # ---- Runtime config values for reconfigurable hardware ----
-    cin_list  = [int(m['n_weights'] // (rom_map[i]['total'] - m['n_bias_bytes'] // 4 * 4 // 5 * 5 // 1))
-                 for i, m in enumerate(rom_map) if m['layer'] != 'fc']
-    # Simpler: re-derive directly from rom_map geometry
-    conv_layers = [m for m in rom_map if m['layer'] != 'fc']
+    # Derive Cin/Cout from summary layer shapes
     cin_derived  = []
     cout_derived = []
-    for m in conv_layers:
-        n_bias_vals = m['n_bias_bytes'] // 4   # 4 bytes per INT32
-        cout_derived.append(n_bias_vals)
-        cin_derived.append(m['n_weights'] // (5 * n_bias_vals))  # K=5
+    for layer_name in LAYER_ORDER[:4]:  # Conv1..Conv4 only
+        for s in summary:
+            if layer_name in s['param'] and 'weight' in s['param']:
+                shape = s['shape']
+                cout_derived.append(shape[0])  # out_channels
+                cin_derived.append(shape[1])   # in_channels
+                break
 
-    w_base_vals = [m['base'] for m in conv_layers]
-    b_base_vals = [m['base'] + m['n_weights'] for m in conv_layers]
-
-    print_hw_config(cin_derived, cout_derived, w_base_vals, b_base_vals)
+    w_base, b_base = compute_rom_bases(cin_derived, cout_derived)
+    print_hw_config(cin_derived, cout_derived, w_base, b_base)
 
     # ---- Final report ----
     print(f"\n{'='*60}")

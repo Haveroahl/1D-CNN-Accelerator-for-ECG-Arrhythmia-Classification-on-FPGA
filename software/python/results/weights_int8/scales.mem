@@ -1,9 +1,0 @@
-// Per-layer quantization scales (Q8.8 fixed-point)
-// Scale conversion: scale_float = scale_q88 / 256
-// Layer order: conv1 -> conv2 -> conv3 -> conv4 -> fc
-// Total scales: 5
-0100
-0100
-0100
-0100
-0100

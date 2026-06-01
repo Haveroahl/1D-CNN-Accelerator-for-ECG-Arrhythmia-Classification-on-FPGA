@@ -95,46 +95,50 @@ Cycle N+1  : FSM chuyển state, reset tất cả counters:
                srw_rst ← 1'b1  (1 cycle pulse)
                in_ch, out_len, nb, relu_en, cp_en ← giá trị mới
 Cycle N+2  : srw_rst=0, pre-fetch bắt đầu
-Cycle N+7+  : compute_en=1 (sau 6 shifts)
+Cycle N+...: compute_en=1 sau khi đếm đủ 5 SRW shifts (prefetch_cnt 0→1→2→3→4)
+             - Conv1 (IN_CH=1): 5 cycles
+             - Conv2/3 (IN_CH=4): 20 cycles
+             - Conv4 (IN_CH=8): 40 cycles
 ```
 
-**Signals không cần reset:** acc, a_d1..a_d6, shifted, clamped — compute_en=0 bảo vệ downstream (out_valid=0).
+**Signals không cần reset:** acc, a_d1..a_d5, shifted, clamped — compute_en=0 bảo vệ downstream (out_valid=0).
 
-**Note**: cp_block gates ACC bằng `a_d5/ce_d5` (5-stage delay), không phải d6. Pipeline thực: mux_comb → mux_s1 → prod → sum01,23 → sum0123 → tree_out (5 registers); acc register update edge ngay sau tree → cần ce_d5 để align.
+**Note**: cp_block gates ACC bằng `a_d5/ce_d5` (5-stage delay). Pipeline thực: mux_comb → mux_s1 → prod → sum01,23 → sum0123 → tree_out (5 registers); acc register update edge ngay sau tree → cần ce_d5 để align.
 
 ## Per-Layer Counter Timing
+
+Bảng dưới hiển thị `a` tại cycle drive (cp_engine input) cùng cột `a_d5` đến cp_block ở edge sau 5 cycles. ACC update (RST/ACC/OUT) xảy ra tại cp_block khi `a_d5` đạt giá trị tương ứng — không nằm cùng cycle drive `a`.
 
 ### Conv1 — IN_CH=1
 
 ```
-Mỗi cycle: shift_en=1, sram_addr_en=1 (a luôn=0=in_ch-1)
-a_d5=0 luôn → RST và OUT đồng thời mỗi cycle
-out_valid: pulse mỗi cycle
-pool_write: pulse mỗi 5 cycles
+Mỗi cycle: shift_en=1, sram_addr_en=1 (a luôn = 0 = in_ch-1)
+a_d5 = 0 mỗi cycle → mỗi edge cp_block: RST acc + acc_final_v=1 (out_valid)
+pool_write: pulse mỗi 5 cycles (5 relu_v)
 ```
 
 ### Conv2/3 — IN_CH=4
 
 ```
-Cycle  a  addr_en  shift_en  a_d6  ACC
- 4k+0  0    -        -        0    RST
- 4k+1  1    -        -        1    ACC
- 4k+2  2    ↑(addr)  -        2    ACC
- 4k+3  3    -        ↑        3    OUT → out_valid=1 → acc_final_v → bias_valid
+Cycle (drive)  a  addr_en  shift_en  | edge cp_block (drive +5) a_d5  ACC
+ 4k+0          0    -        -       |                            0    RST
+ 4k+1          1    -        -       |                            1    ACC
+ 4k+2          2    ↑(addr)  -       |                            2    ACC
+ 4k+3          3    -        ↑       |                            3    OUT → out_valid → acc_final_v
 ```
 
 ### Conv4 — IN_CH=8 (chuẩn tham chiếu)
 
 ```
-Cycle  a  addr_en  shift_en  a_d6  ACC
- 8k+0  0    -        -        0    RST
- 8k+1  1    -        -        1    ACC
- 8k+2  2    -        -        2    ACC
- 8k+3  3    -        -        3    ACC
- 8k+4  4    -        -        4    ACC
- 8k+5  5    -        -        5    ACC
- 8k+6  6    ↑(addr)  -        6    ACC
- 8k+7  7    -        ↑        7    OUT → out_valid=1 → acc_final_v → bias_valid
+Cycle (drive)  a  addr_en  shift_en  | edge cp_block (drive +5) a_d5  ACC
+ 8k+0          0    -        -       |                            0    RST
+ 8k+1          1    -        -       |                            1    ACC
+ 8k+2          2    -        -       |                            2    ACC
+ 8k+3          3    -        -       |                            3    ACC
+ 8k+4          4    -        -       |                            4    ACC
+ 8k+5          5    -        -       |                            5    ACC
+ 8k+6          6    ↑(addr)  -       |                            6    ACC
+ 8k+7          7    -        ↑       |                            7    OUT → out_valid → acc_final_v
 ```
 
 ## GAP_FC Sub-States

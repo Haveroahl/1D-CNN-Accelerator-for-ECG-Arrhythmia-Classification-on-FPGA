@@ -4,7 +4,7 @@
 // Responsibilities:
 //   1. SRW array: 8 shift-register windows (5-tap × 8-bit), one per input channel
 //   2. MUX: select SRW[a] each cycle → mux_s1 (1-stage, broadcast to all 8 cp_blocks)
-//   3. Delay chain: a → a_d6, compute_en → ce_d6  (6 cycles: MUX_reg + WROM_reg + MULT + TREE×3)
+//   3. Delay chain: a → a_d5, compute_en → ce_d5  (5 cycles: mux_s1 + MULT + TREE×3)
 //   4. SRAM read address generation for Ping SRAM and Input SRAM
 //   5. 8 cp_block instances, weight from per-layer FF arrays (40b/word = 5 taps packed)
 //   6. Pool write gating: pool_write && cp_en[oc]
@@ -22,14 +22,13 @@
 // Note: ping_pong_sram and input_sram are instantiated in ecg_accelerator_top.
 //       cp_engine receives dout from those SRAMs as inputs.
 //
-// Pipeline latency from a to acc input: 6 cycles
+// Pipeline latency from mux_comb to acc register edge: 5 cycles
 //   cy N   : a → mux_comb (SRW async) + w_comb (ROM async, 8:1 MUX per oc)
 //   cy N+1 : mux_s1 ← mux_comb;  w_packed ← w_comb  (both FF registered)
 //   cy N+2 : prod ← mux_s1 * w_packed (S1 MULT)
 //   cy N+3 : sum01/sum23 (S2)
 //   cy N+4 : sum0123 (S3)
-//   cy N+5 : tree_out (S4)
-//   cy N+6 : acc updates with a_d6 (S5)
+//   cy N+5 : tree_out (S4) — acc edge reads a_d5/ce_d5/inch_d5 to match a from cy N
 
 module cp_engine (
     input  wire        clk,
@@ -53,8 +52,8 @@ module cp_engine (
     input  wire [63:0] ping_dout,           // from ping_pong_sram: ping_dout[ch*8+:8]
 
     // Pong SRAM write interface (to ping_pong_sram write port)
-    output wire [8:0]  pong_wr_addr,        // shared write address (from controller)
-    input  wire [8:0]  pong_addr_in,        // pong_addr from controller
+    // Note: write address is driven directly from cnn_controller.pong_addr at top-level
+    // (no logic needed inside cp_engine — saved a passthrough port).
     output wire [63:0] pong_din,            // per-channel write data: pong_din[ch*8+:8]
     output wire [7:0]  pong_we,             // per-channel write enable
 
@@ -71,7 +70,6 @@ module cp_engine (
 
     // ── SRAM read address: t - 2 (padding offset) ─────────────────────────
     assign sram_rd_addr = (sram_rd_addr_in >= 12'd2) ? (sram_rd_addr_in - 12'd2) : 12'd0;
-    assign pong_wr_addr = pong_addr_in;
 
     // ── SRW[0..7]: 5-tap shift register per input channel ─────────────────
     // 1D flat (Verilog-2001): srw_flat[ch*5 + slot]
@@ -145,31 +143,26 @@ module cp_engine (
             mux_s1[mi*8 +: 8] <= mux_comb[mi];
     end
 
-    // ── Delay chain: a, in_ch and compute_en delayed 6 cycles ────────────────────
-    // MUX_reg(1) + WROM_reg(1) + MULT(1) + TREE(3) = 6 cycles before ACC
-    //   cy N   : a → mux_comb + w_rom read (combinational)
-    //   cy N+1 : mux_s1, w_packed registered
-    //   cy N+2 : prod (S1 MULT)
-    //   cy N+3 : sum01/sum23 (S2)
-    //   cy N+4 : sum0123 (S3)
-    //   cy N+5 : tree_out (S4)
-    //   cy N+6 : acc updates → needs a_d6 (a value from cycle N)
-    reg [3:0] a_d1, a_d2, a_d3, a_d4, a_d5, a_d6;
-    reg [3:0] inch_d1, inch_d2, inch_d3, inch_d4, inch_d5, inch_d6;
-    reg       ce_d1, ce_d2, ce_d3, ce_d4, ce_d5, ce_d6;
+    // ── Delay chain: a, in_ch, compute_en delayed 5 cycles ──────────────────
+    // mux_s1(1) + MULT(1) + TREE(3) = 5 cycles. d5 outputs feed cp_block ports
+    // a_in / in_ch / compute_en_in so that at the acc-register edge cy N+5 the
+    // conditional matches the a value that drove mux_comb at cy N.
+    reg [3:0] a_d1, a_d2, a_d3, a_d4, a_d5;
+    reg [3:0] inch_d1, inch_d2, inch_d3, inch_d4, inch_d5;
+    reg       ce_d1, ce_d2, ce_d3, ce_d4, ce_d5;
     always @(posedge clk) begin
         if (srw_rst) begin
-            a_d1 <= 4'd0; a_d2 <= 4'd0; a_d3 <= 4'd0; a_d4 <= 4'd0; a_d5 <= 4'd0; a_d6 <= 4'd0;
+            a_d1 <= 4'd0; a_d2 <= 4'd0; a_d3 <= 4'd0; a_d4 <= 4'd0; a_d5 <= 4'd0;
             inch_d1 <= 4'd0; inch_d2 <= 4'd0; inch_d3 <= 4'd0;
-            inch_d4 <= 4'd0; inch_d5 <= 4'd0; inch_d6 <= 4'd0;
+            inch_d4 <= 4'd0; inch_d5 <= 4'd0;
             ce_d1 <= 1'b0; ce_d2 <= 1'b0; ce_d3 <= 1'b0;
-            ce_d4 <= 1'b0; ce_d5 <= 1'b0; ce_d6 <= 1'b0;
+            ce_d4 <= 1'b0; ce_d5 <= 1'b0;
         end else begin
-            a_d1 <= a;      a_d2 <= a_d1;  a_d3 <= a_d2;  a_d4 <= a_d3;  a_d5 <= a_d4;  a_d6 <= a_d5;
+            a_d1 <= a;      a_d2 <= a_d1;  a_d3 <= a_d2;  a_d4 <= a_d3;  a_d5 <= a_d4;
             inch_d1 <= in_ch;  inch_d2 <= inch_d1; inch_d3 <= inch_d2;
-            inch_d4 <= inch_d3; inch_d5 <= inch_d4; inch_d6 <= inch_d5;
+            inch_d4 <= inch_d3; inch_d5 <= inch_d4;
             ce_d1 <= compute_en; ce_d2 <= ce_d1; ce_d3 <= ce_d2;
-            ce_d4 <= ce_d3;      ce_d5 <= ce_d4; ce_d6 <= ce_d5;
+            ce_d4 <= ce_d3;      ce_d5 <= ce_d4;
         end
     end
 

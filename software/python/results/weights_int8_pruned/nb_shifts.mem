@@ -1,8 +1,0 @@
-// Per-layer activation right-shift bits (fphys Eq.11)
-// Hardware: acc >>> nb_lut[layer_idx]  (arithmetic right shift)
-// Layer order: conv1 -> conv2 -> conv3 -> conv4 -> fc
-0A
-14
-1D
-26
-00

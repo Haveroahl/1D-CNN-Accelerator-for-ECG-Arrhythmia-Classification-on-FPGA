@@ -1,0 +1,44 @@
+{
+  "w_shift": {
+    "conv1": 6,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7,
+    "fc": 8
+  },
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7
+  },
+  "input_shift_bits": 2,
+  "input_scale": 4,
+  "total_weights": 612,
+  "layers": {
+    "conv1": [
+      4,
+      1,
+      5
+    ],
+    "conv2": [
+      4,
+      4,
+      5
+    ],
+    "conv3": [
+      8,
+      4,
+      5
+    ],
+    "conv4": [
+      8,
+      8,
+      5
+    ],
+    "fc": [
+      4,
+      8
+    ]
+  }
+}

@@ -34,3 +34,13 @@ hardware/fpga/simulation/questa/wlft*
 # IDE
 .vscode/
 .idea/
+.claude/
+
+# Large sim/build artifacts (do not version)
+*.vcd
+hardware/fpga/simulation/questa/msim_transcript
+hardware/fpga/simulation/questa/*.vo
+hardware/fpga/simulation/questa/probe_trace.log
+
+# Secondary working copy (not versioned)
+hardware_v2/

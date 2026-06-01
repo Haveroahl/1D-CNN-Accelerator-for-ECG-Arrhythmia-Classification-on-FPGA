@@ -61,13 +61,13 @@ FC:       no rescale (nb_fc=0), raw INT32 logits feed directly into argmax.
 | `a` counter width | 4-bit (0..7) | dùng chung, IN_CH nhỏ hơn |
 | `in_ch` | 8 | 1 / 4 / 4 |
 | ROM addr width | 6-bit (oc*8+ic, max=63) | nhỏ hơn |
-| Delay chain | a_d6 (6 cycles) | dùng chung |
+| Delay chain | a_d5 (5 cycles) feed cp_block | dùng chung |
 | cp_en bitmask | 8'hFF (8 oc active) | 8'h0F hoặc ít hơn |
 | `acc` accumulates | 8 partial sums | ít hơn |
 
 **Checklist khi thêm/sửa tham số:**
 - [ ] Đủ bit width cho Conv4 (IN_CH=8, OUT_CH=8)?
-- [ ] Delay chain (a_d6) tính từ Conv4 pipeline depth?
+- [ ] Delay chain (a_d5) khớp đúng pipeline depth mux_comb → tree_out (5 stages: mux_s1 → prod → sum01,23 → sum0123 → tree_out)?
 - [ ] ROM address range cover oc=0..7, ic=0..7?
 - [ ] `in_ch - 1` comparison đúng khi in_ch=8?
 
@@ -132,44 +132,51 @@ w_comb[oc] là combinational MUX (giống mux_comb của SRW) → w_packed FF �
 - [x] ecg_accelerator_top.v — wire tất cả modules
 - [x] avalon_slave.v — Avalon-MM, 6 registers
 
-### ○ Weight & Data Export
+### ✓ Weight & Data Export — HOÀN THÀNH (baseline)
 
-- [ ] Re-train pruned model (channels 4,4,8,8) nếu chưa xong
-- [ ] Re-run QAT-INT8 export
-- [ ] Tạo `conv1_w.hex` — 4 entries × 40b packed (4oc × 1ic × 5tap)
-- [ ] Tạo `conv2_w.hex` — 16 entries × 40b packed (4oc × 4ic)
-- [ ] Tạo `conv3_w.hex` — 32 entries × 40b packed (8oc × 4ic)
-- [ ] Tạo `conv4_w.hex` — 64 entries × 40b packed (8oc × 8ic)
-- [ ] Tạo `conv_bias.hex` — 32 entries × INT32, addr = oc*4 + layer_idx
-- [ ] Tạo `fc_weights.hex` — 32 entries × INT8, addr = k*8 + i
-- [ ] Tạo golden `.mem` files cho mỗi layer (từ `generate_golden.py`)
+- [x] Pruned model channels (4,4,8,8) — `best_model_pruned.pth`
+- [x] QAT-INT8 power-of-2 round-half-up — `qat_int8/model_qat_int8.pth` (94.65%)
+- [x] `flat_weights.hex` — 580 INT8 entries (KHÔNG có comment lines)
+- [x] Bias INT32 little-endian, scaled `b_int = round(b_float × 2^nb)`
+- [x] Golden `.mem` files — 21 checkpoints/sample × 3 samples từ `generate_golden.py`
 
-### ○ Testbench & Simulation
+### ✓ Testbench & Simulation — HOÀN THÀNH (baseline)
 
-- [x] `testbench/testcase.md` — test case list + coverage mapping (18+8+7 TCs, >90%)
-- [x] `testbench/tb_cp_block.v` — 18 unit tests, S1-S9 pipeline, ~95% branch coverage
-- [x] `testbench/tb_layer.v` — 8 integration tests, Conv1 end-to-end
-- [x] `testbench/tb_top.v` — 7 full system tests (needs golden hex files)
-- [ ] Export golden hex files from Python (`generate_golden.py`)
-- [ ] Run `tb_cp_block.v` in ModelSim — all 18 TC PASS
-- [ ] Run `tb_layer.v` — 500 pool_writes, bank_sel toggle verified
-- [ ] Run `tb_top.v` — result[1:0] matches Python for ≥3 samples
+- [x] `testbench/tb_cp_block.v` — 18 unit tests S1-S9 pipeline
+- [x] `testbench/tb_layer.v` — 8 integration tests Conv1 end-to-end
+- [x] `testbench/tb_top.v` — full system tests
+- [x] **21/21 bit-exact PASS** với golden Python (xem section Verification Complete bên dưới)
+- [x] Latency đo: 5216 cycles ≈ 52.16 µs @ 100 MHz
 
-### ○ Synthesis & Timing
+### ○ Synthesis & Timing — CHƯA LÀM (Phase C của roadmap Q3)
 
 - [ ] Tạo Quartus project (device: 5CSXFC6D6F31C6)
-- [ ] Thêm timing constraint: `create_clock -period 10.0 [get_ports clk]`
+- [ ] SDC: dùng `ecg_accelerator_top_100mhz.sdc` (đã chuẩn bị)
 - [ ] Synthesis pass (Quartus Compile)
-- [ ] TimeQuest: kiểm tra Fmax ≥ 100 MHz
-- [ ] Fix timing violations nếu có (pipeline thêm stage, retiming)
-- [ ] Kiểm tra DSP18/M10K usage khớp estimate
+- [ ] TimeQuest: report Fmax thực + WNS
+- [ ] PowerPlay với `.vcd` activity → dynamic + static power
+- [ ] Energy/inference = Power × 52.16 µs (metric chính cho wearable story)
+- [ ] Resource report: ALM, M10K, DSP18, FF — so sánh với estimate
 
-### ○ On-Board Validation (DE10-Standard)
+### ○ On-Board Validation — CHƯA LÀM (Phase D của roadmap Q3)
 
-- [ ] Viết HPS driver C (`ecg_classify.c`)
-- [ ] Load test ECG samples qua Avalon-MM
-- [ ] Chạy inference, đọc result[1:0]
-- [ ] Verify accuracy trên test set (target: khớp Python ~94.65%)
+- [ ] Program `.sof` vào DE10-Standard
+- [ ] Viết HPS driver C (`ecg_classify.c`) + cross-compile cho Cortex-A9
+- [ ] Load test ECG samples qua Avalon-MM, chạy inference, đọc result[1:0]
+- [ ] Verify accuracy trên test set Chapman (target: khớp Python ~94.65%)
+- [ ] Đo latency thực bằng ARM A9 cycle counter
+
+### ○ Phase B — Lightweight Weight RAM (enabling C3 cross-dataset, Q3 paper)
+
+> Mục đích: cùng 1 bitstream chạy được Chapman + MIT-BIH weight. Là **enabling mechanism** cho cross-dataset study (C3), không phải novelty chính.
+
+- [ ] Refactor `cp_engine.v`: thay weight FF array bằng `weight_ram` interface
+- [ ] Tạo `weight_ram.v` — dual-port M10K, write từ Avalon, read combinational/1-cy
+- [ ] Mở rộng `avalon_slave.v` address: 5-bit → 12-bit
+- [ ] Address map: `0x000-0x07F` weight+bias+FC (~580 INT8 word), `0x080-0x09C` input ECG, `0x0A0` control/status
+- [ ] HPS driver: `load_weights(path)`, `load_ecg(buf)`, `run_inference()`, `read_result()`
+- [ ] Regression: 21/21 bit-exact phải PASS với weight load via Avalon (không $readmemh)
+- [ ] Resource overhead: +1-2 M10K, +100-200 ALM (estimate < 6% device)
 
 ---
 
@@ -223,6 +230,27 @@ M10K BRAM       Sync read 1cy               (mem)   <3 ns       Safe (-6 grade)
 - [GAP/FC/Argmax](docs/gap_fc_design.md) — datapath, timing tables, cycle counts
 - [Memory Interface](docs/memory_interface.md) — SRAM architecture, Avalon memory map, hex file layout
 
+## Roadmap cho Q3 paper
+
+> Chi tiết novelty, contributions, paper structure: [../Paper_Proposal_Q3.md](../Paper_Proposal_Q3.md)
+> Cross-dataset evaluation plan: [../Phase_3_evaluate.md](../Phase_3_evaluate.md)
+
+Hardware đã verify baseline xong (21/21 bit-exact, 52 µs/inference). Còn lại cho paper Q3:
+
+1. **Phase B** — Lightweight weight RAM (xem Task List ở trên) — enabling C3.
+2. **Phase C** — Quartus synthesis + PowerPlay → energy/inference (metric chính wearable story).
+3. **Phase D** — DE10-Standard on-board: HPS driver load Chapman weight → 94%, load MIT-BIH weight (Phase A trained) → match Python.
+
+Hardware fit vào contributions paper:
+- **C2 (Bit-exact framework)** — đã done, dùng 21 checkpoints để chứng minh Python↔RTL match.
+- **C4 (IP core architecture)** — đã done, latency + cycle count.
+- **C5 (Weight reload)** — Phase B, là phương tiện để chạy C3 cross-dataset.
+
+Wearable angle (đã align với novelty pitch Hướng 3 a+c):
+- Power-of-2 QAT → rescale chỉ shift + add → **0 DSP cho rescale** (so với general-scale cần 5 multiplier).
+- → ít DSP → ít dynamic power → energy/inference thấp → phù hợp wearable continuous monitoring.
+- PowerPlay sẽ cho số liệu cụ thể (Table 8 trong paper).
+
 ---
 
 ## Verification Strategy
@@ -240,7 +268,10 @@ M10K BRAM       Sync read 1cy               (mem)   <3 ns       Safe (-6 grade)
 **Trạng thái cuối**: 
 - **TC argmax**: 8/8 PASS (3 samples result match Python golden)
 - **L2 bit-exact ±10**: **21/21 PASS** (input + 4 pool + gap + logits cho cả 3 samples)
-- **Cycles**: 2608 / inference (~26 µs @ 100 MHz)
+- **Inference latency**: **5216 clock / inference (~52.16 µs @ 100 MHz)** — deterministic cho cả 3 samples.
+  - Đo bằng `$time` trong testbench `run_inference` task (sau khi fix poll-count → clock count, [tb_top.v:210-232](testbench/tb_top.v#L210)).
+  - Khớp math FSM: Conv1(2500) + Conv2(2000) + Conv3(400) + Conv4(160) + GAP/FC/Argmax(22) + transition overhead ≈ 5082 + ~134 = 5216.
+  - Throughput: ~19,200 inference/s @ 100 MHz.
 
 **Root cause** (xác định qua cycle-level probe + hand-calc):
 - Pipeline depth thực tế từ `mux_comb` đến `acc` register update edge = **5 cycles** (mux_s1 → prod → sum01,23 → sum0123 → tree_out), không phải 6.

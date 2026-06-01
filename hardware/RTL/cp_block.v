@@ -6,8 +6,8 @@
 //
 // Interface boundary:
 //   - taps_in[0:4] : 5 tap values from cp_engine mux_s2 (2-cy delayed)
-//   - a_in         : channel counter delayed 6 cycles from cp_engine (a_d6)
-//   - compute_en_in: pipeline enable delayed 6 cycles from cp_engine (ce_d6)
+//   - a_in         : channel counter delayed 5 cycles from cp_engine (a_d5)
+//   - compute_en_in: pipeline enable delayed 5 cycles from cp_engine (ce_d5)
 //   - w[0:4]       : weights from cp_engine w_cur_flat (2-stage pipeline, arrive cycle N+2)
 //   - bias_in      : INT32 bias from b_cur
 //   - pool_write   : output — write strobe to Pong SRAM (AND with cp_en externally)
@@ -29,9 +29,9 @@ module cp_block #(
     input  wire signed [31:0]    bias_in,
 
     // Controller signals
-    input  wire [3:0]            a_in,           // channel counter delayed 6 cycles (a_d6)
+    input  wire [3:0]            a_in,           // channel counter delayed 5 cycles (a_d5)
     input  wire [3:0]            in_ch,          // IN_CH for current layer (1/4/4/8)
-    input  wire                  compute_en_in,   // pipeline enable delayed 6 cycles
+    input  wire                  compute_en_in,   // pipeline enable delayed 5 cycles (ce_d5)
     input  wire [4:0]            nb,              // rescale shift amount
     input  wire                  relu_en,         // 1 = Conv4 only
 

@@ -208,19 +208,26 @@ module tb_top;
     endtask
 
     // Run full inference: START → poll STATUS → return RESULT, cycle count
+    // cycles = số clock cycle thực tế (đo qua $time / 10ns), không phải poll-count.
     task run_inference;
         output [1:0] cls;
         output integer cycles;
         reg [31:0] status;
+        time         t_start, t_end;
+        integer      poll_iter;
         begin
             avs_wr(5'h03, 32'd1);   // START
-            cycles = 0;
-            status = 1;
-            while (status[0] && cycles < 10000) begin
+            @(posedge clk); #1;
+            t_start   = $time;
+            poll_iter = 0;
+            status    = 1;
+            while (status[0] && poll_iter < 10000) begin
                 @(posedge clk); #1;
                 avs_rd(5'h04, status);  // STATUS: [0]=busy
-                cycles = cycles + 1;
+                poll_iter = poll_iter + 1;
             end
+            t_end  = $time;
+            cycles = (t_end - t_start) / 10;  // 10ns clock period (always #5 clk = ~clk)
             avs_rd(5'h05, status);   // RESULT
             cls = status[1:0];
         end
@@ -280,7 +287,17 @@ module tb_top;
         input integer ch;
         input integer pos;
         begin
-            read_mem_a = u_top.u_pp.mem_a[ch*500 + pos];
+            case (ch)
+                0: read_mem_a = u_top.u_pp.mem_a_ch0[pos];
+                1: read_mem_a = u_top.u_pp.mem_a_ch1[pos];
+                2: read_mem_a = u_top.u_pp.mem_a_ch2[pos];
+                3: read_mem_a = u_top.u_pp.mem_a_ch3[pos];
+                4: read_mem_a = u_top.u_pp.mem_a_ch4[pos];
+                5: read_mem_a = u_top.u_pp.mem_a_ch5[pos];
+                6: read_mem_a = u_top.u_pp.mem_a_ch6[pos];
+                7: read_mem_a = u_top.u_pp.mem_a_ch7[pos];
+                default: read_mem_a = 8'h00;
+            endcase
         end
     endfunction
 
@@ -288,7 +305,17 @@ module tb_top;
         input integer ch;
         input integer pos;
         begin
-            read_mem_b = u_top.u_pp.mem_b[ch*500 + pos];
+            case (ch)
+                0: read_mem_b = u_top.u_pp.mem_b_ch0[pos];
+                1: read_mem_b = u_top.u_pp.mem_b_ch1[pos];
+                2: read_mem_b = u_top.u_pp.mem_b_ch2[pos];
+                3: read_mem_b = u_top.u_pp.mem_b_ch3[pos];
+                4: read_mem_b = u_top.u_pp.mem_b_ch4[pos];
+                5: read_mem_b = u_top.u_pp.mem_b_ch5[pos];
+                6: read_mem_b = u_top.u_pp.mem_b_ch6[pos];
+                7: read_mem_b = u_top.u_pp.mem_b_ch7[pos];
+                default: read_mem_b = 8'h00;
+            endcase
         end
     endfunction
 
@@ -701,7 +728,7 @@ module tb_top;
 
                 // TC06: check cycle count in expected range (5000-6000 cycles + Avalon overhead)
                 if (sample_idx === 0) begin
-                    if (cyc_out > 100 && cyc_out < 10000) begin
+                    if (cyc_got > 5000 && cyc_got < 6000) begin
                         $display("PASS [TC06_cycle_count_reasonable] cycles=%0d  (%0t ns)", cyc_got, $time - tc_t0);
                         pass_cnt = pass_cnt + 1;
                     end else begin

@@ -1,11 +1,11 @@
 """Quantization-Aware Training (QAT) + INT8 Export
 
 Pipeline:
-  1. QAT training:   fake-quantize weights + activations during training
+  1. QAT training:   fake-quantize weights + activations (both train & validation)
                      → weights learn to fit INT8 range naturally
   2. INT8 convert:   w_int8 = round(w * 2^N), clamp [-127, 127]
                      compute input_shift_bits from dataset max
-  3. Evaluate:       simulate hardware integer forward pass
+  3. Evaluate:       compare QAT fake-quantized vs INT8 integer forward pass
   4. Export:         .mem files for Verilog ROM
 
 QAT fake quantization (Straight-Through Estimator):
@@ -485,20 +485,36 @@ def run(args):
     # ---- Load base checkpoint ----
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
     is_pruned = 'c1_out' in ckpt
+    is_qat_checkpoint = ckpt.get('quantization') == 'QAT-INT8' or 'w_int8' in ckpt
 
-    if is_pruned:
-        print(f"[INFO] Detected pruned model "
-              f"(c1={ckpt['c1_out']}, c2={ckpt['c2_out']}, "
-              f"c3={ckpt['c3_out']}, c4={ckpt['c4_out']})")
-        base_model = ECG_1DCNN_Pruned(
-            c1_out=ckpt['c1_out'], c2_out=ckpt['c2_out'],
-            c3_out=ckpt['c3_out'], c4_out=ckpt['c4_out'],
-        )
+    if args.eval_only and is_qat_checkpoint:
+        # If eval_only with QAT INT8 checkpoint, skip to Phase 2 directly
+        print(f"[INFO] Detected QAT INT8 checkpoint, skipping Phase 1")
+        if is_pruned:
+            qat_model = ECG_1DCNN_QAT(
+                c1_out=ckpt['c1_out'], c2_out=ckpt['c2_out'],
+                c3_out=ckpt['c3_out'], c4_out=ckpt['c4_out'],
+            ).to(device)
+        else:
+            qat_model = ECG_1DCNN_QAT().to(device)
+        qat_model.load_state_dict(ckpt['model_state_dict'])
+        qat_model.eval()
     else:
-        base_model = ECG_1DCNN(num_classes=4)
+        # Normal training path: load base model (pruned or original)
+        if is_pruned:
+            print(f"[INFO] Detected pruned model "
+                  f"(c1={ckpt['c1_out']}, c2={ckpt['c2_out']}, "
+                  f"c3={ckpt['c3_out']}, c4={ckpt['c4_out']})")
+            base_model = ECG_1DCNN_Pruned(
+                c1_out=ckpt['c1_out'], c2_out=ckpt['c2_out'],
+                c3_out=ckpt['c3_out'], c4_out=ckpt['c4_out'],
+            )
+        else:
+            base_model = ECG_1DCNN(num_classes=4)
 
-    base_model.load_state_dict(ckpt['model_state_dict'])
-    base_model = base_model.to(device)
+        base_model.load_state_dict(ckpt['model_state_dict'])
+        base_model = base_model.to(device)
+        qat_model = None  # Will be built after data loading
 
     # ---- Data ----
     train_loader, val_loader, test_loader = get_dataloaders(
@@ -508,7 +524,7 @@ def run(args):
     # ---- Phase 1: QAT training ----
     qat_path = os.path.join(args.output_dir, 'model_qat_float.pth')
 
-    if not args.eval_only:
+    if not args.eval_only and not (args.eval_only and is_qat_checkpoint):
         print(f"\n{'='*60}")
         print(f"  Phase 1: QAT Training ({args.epochs} epochs, lr={args.lr})")
         print(f"{'='*60}")
@@ -545,7 +561,7 @@ def run(args):
                 for batch in val_loader:
                     xv = batch[0].to(device)
                     yv = batch[1]
-                    preds_v.extend(qat_model(xv, quantize=False).argmax(1).cpu().numpy())
+                    preds_v.extend(qat_model(xv, quantize=True).argmax(1).cpu().numpy())
                     labels_v.extend(yv.numpy())
             val_acc = (np.array(preds_v) == np.array(labels_v)).mean()
 
@@ -570,21 +586,32 @@ def run(args):
     print(f"  Phase 2: INT8 Conversion + Calibration")
     print(f"{'='*60}")
 
-    qat_ckpt = torch.load(qat_path, map_location=device, weights_only=False)
-    if is_pruned:
-        qat_model = ECG_1DCNN_QAT(
-            c1_out=ckpt['c1_out'], c2_out=ckpt['c2_out'],
-            c3_out=ckpt['c3_out'], c4_out=ckpt['c4_out'],
-        ).to(device)
+    # If QAT INT8 checkpoint provided with eval_only, reuse INT8 data
+    if args.eval_only and is_qat_checkpoint and 'w_int8' in ckpt:
+        print(f"[INFO] Using INT8 data from checkpoint")
+        w_int8 = {k: np.array(v, dtype=np.int8) for k, v in ckpt['w_int8'].items()}
+        b_int8 = {k: np.array(v, dtype=np.float64) for k, v in ckpt['b_int8'].items()}
+        w_shift = ckpt['w_shift']
+        nb = ckpt['nb']
+        input_shift = ckpt['input_shift_bits']
     else:
-        qat_model = ECG_1DCNN_QAT().to(device)
+        # Normal training path: convert to INT8 from QAT weights
+        if qat_model is None:  # Built in Phase 1
+            qat_ckpt = torch.load(qat_path, map_location=device, weights_only=False)
+            if is_pruned:
+                qat_model = ECG_1DCNN_QAT(
+                    c1_out=ckpt['c1_out'], c2_out=ckpt['c2_out'],
+                    c3_out=ckpt['c3_out'], c4_out=ckpt['c4_out'],
+                ).to(device)
+            else:
+                qat_model = ECG_1DCNN_QAT().to(device)
 
-    qat_model.load_state_dict(qat_ckpt['model_state_dict'])
-    qat_model.eval()
+            qat_model.load_state_dict(qat_ckpt['model_state_dict'])
+            qat_model.eval()
 
-    w_int8, b_int8, w_shift, nb, input_shift = convert_to_int8(
-        qat_model, train_loader, device, n_cal_batches=20
-    )
+        w_int8, b_int8, w_shift, nb, input_shift = convert_to_int8(
+            qat_model, train_loader, device, n_cal_batches=20
+        )
 
     print(f"\n  input_shift_bits = {input_shift}  (scale = 2^{input_shift})")
     print(f"  Per-layer weight shift bits:")
@@ -617,26 +644,26 @@ def run(args):
     print(f"  Phase 3: Evaluation")
     print(f"{'='*60}")
 
-    # Float32 (QAT weights, no fake quantize)
+    # QAT fake-quantized (matching training)
     qat_model.eval()
     with torch.no_grad():
-        preds_f, labels_f = [], []
+        preds_fq, labels_fq = [], []
         for batch in test_loader:
-            xf = batch[0].to(device)
-            yf = batch[1]
-            preds_f.extend(qat_model(xf, quantize=False).argmax(1).cpu().numpy())
-            labels_f.extend(yf.numpy())
-    preds_f   = np.array(preds_f)
-    labels_f  = np.array(labels_f)
-    float_acc = (preds_f == labels_f).mean()
-    print(f"\n  QAT Float32 test accuracy : {float_acc:.4f} ({float_acc*100:.2f}%)")
+            xfq = batch[0].to(device)
+            yfq = batch[1]
+            preds_fq.extend(qat_model(xfq, quantize=True).argmax(1).cpu().numpy())
+            labels_fq.extend(yfq.numpy())
+    preds_fq   = np.array(preds_fq)
+    labels_fq  = np.array(labels_fq)
+    fq_acc = (preds_fq == labels_fq).mean()
+    print(f"\n  QAT fake-quantized accuracy: {fq_acc:.4f} ({fq_acc*100:.2f}%)")
 
-    # INT8 simulation
+    # INT8 simulation (hardware integer forward pass)
     int8_acc, preds_int8, labels_int8 = evaluate_int8(
         qat_model, test_loader, w_int8, b_int8, w_shift, nb, input_shift, device
     )
-    print(f"  QAT INT8 test accuracy    : {int8_acc:.4f} ({int8_acc*100:.2f}%)")
-    print(f"  Accuracy drop (float→INT8): {(float_acc - int8_acc)*100:+.2f}%")
+    print(f"  QAT INT8 simulated accuracy: {int8_acc:.4f} ({int8_acc*100:.2f}%)")
+    print(f"  Accuracy drop (fq→INT8)    : {(fq_acc - int8_acc)*100:+.2f}%")
 
     metrics_int8 = compute_metrics(preds_int8, labels_int8, CLASS_NAMES)
     print(f"\n  INT8 Per-class metrics:")

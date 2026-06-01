@@ -211,28 +211,35 @@
     Toggles             30.91%        38.00%   (bị chi phối bởi bit weight/data)
     Total (filtered)    64.72%        69.30%
 
-  PHÂN TÍCH (đâu là coverage "thực chất", vì sao tổng vẫn < 95%):
-  - Statement 93% / Branch 87%: chỉ số chức năng cốt lõi — đa số nhánh logic ĐÃ
-    phủ. Nhánh miss chủ yếu là default/illegal-state phòng thủ.
-  - tb_fsm đã đóng khoảng trống MAIN-FSM: 8/8 cạnh controller (gồm re-start
-    DONE→LOAD) đều PASS; FSM-state lên 80.95%.
-  - FSM Transition 28% (tổng) vẫn THẤP nhưng GÂY HIỂU LẦM: Questa tự nhận diện
-    nhiều "FSM" phụ (các step-counter của gap_fc: gap_step/fc_step/argmax_step)
-    sinh RẤT NHIỀU transition bin tổ hợp không có ý nghĩa control — không phải FSM
-    điều khiển thật. FSM điều khiển chính (cnn_controller.layer_state) đã phủ đủ
-    cạnh hợp lệ (xác nhận trực tiếp bởi tb_fsm).
-  - Toggle 38% THẤP: ~54K toggle bin gồm toàn bộ bit weight ROM/bias/acc 32-bit/
-    SRW — đa số hằng/ít đổi. Toggle KHÔNG phản ánh functional cho khối số học
-    nhiều bit dữ liệu tĩnh; nên LOẠI weight/data array khi báo cáo.
+  CHÍNH SÁCH BÁO CÁO (cov_merge_report.do xuất 2 chế độ):
+  (1) FUNCTIONAL = -code bcefs (branch/condition/expression/fsm/statement, BỎ
+      toggle) → file cov_report_functional.txt. Đây là con số nên trích dẫn.
+  (2) RAW = toàn metric kể cả toggle → cov_report_raw.txt (minh bạch).
+
+  Vì sao BỎ toggle khỏi functional: ~54K toggle bin là bit của weight ROM
+  (w_rom_conv1..4), bias, acc 32-bit, SRW, datapath — phần lớn hằng hoặc phụ
+  thuộc dữ liệu. Toggle KHÔNG đo đúng tính đúng chức năng cho khối số học; GIÁ TRỊ
+  của chúng đã được chứng minh BIT-EXACT bởi tb_top (bằng chứng đúng thật sự).
+
+  PHÂN TÍCH per-metric (số functional, đâu mạnh / đâu là artifact):
+  - Statement 93.20% / Branch 86.99%: chỉ số chức năng cốt lõi — đa số nhánh logic
+    ĐÃ phủ. Miss chủ yếu là default/illegal-state phòng thủ.
+  - MAIN control-FSM: 100% cạnh hợp lệ (8/8 qua tb_fsm, gồm re-start DONE→LOAD);
+    FSM-state tổng 80.95%.
+  - FSM Transition 28% (tổng) THẤP nhưng GÂY HIỂU LẦM: Questa tự nhận nhiều "FSM"
+    phụ (step-counter gap_step/fc_step/argmax_step của gap_fc) sinh rất nhiều
+    transition bin tổ hợp vô nghĩa control — KHÔNG phải FSM điều khiển. FSM thật
+    (layer_state) đã phủ đủ (tb_fsm xác nhận trực tiếp).
 
   KẾT LUẬN TRUNG THỰC:
-    * Con số NÊN báo cáo cho functional coverage: Statement 93.20% / Branch 86.99%.
-    * MAIN control-FSM: 100% cạnh hợp lệ (8/8 qua tb_fsm).
-    * MỤC TIÊU >95% trên metric tổng hợp CHƯA ĐẠT. Còn lại để chạm >95%:
-      (a) lọc toggle bins + FSM phụ (gap_fc step-counters) khỏi báo cáo (đúng bản
-          chất, không gian lận — đó là counter không phải control FSM),
-      (b) thêm condition/expression test cho cp_engine/controller.
-    * KHÔNG tuyên bố ">95%" như fact cho tới khi đo lại đạt sau khi lọc/bổ sung.
+    * Con số functional NÊN trích dẫn: Statement 93.20% / Branch 86.99% /
+      FSM-state 80.95% / MAIN control-FSM 100%.
+    * Total tổng hợp (74.51% functional / 69.30% raw) bị KÉO XUỐNG bởi FSM-trans
+      của step-counter phụ — là ARTIFACT đo, không phải gap verify.
+    * MỤC TIÊU ">95% trên 1 con số tổng hợp" KHÔNG đạt và KHÔNG nên dùng làm
+      tuyên bố — số per-metric ở trên mới phản ánh đúng độ phủ. Nếu cần một con số
+      ">95%", chỉ chính đáng khi nói rõ phạm vi: "statement coverage 93%, branch
+      87%, main control-FSM 100%" — KHÔNG gộp toggle/sub-FSM vào.
 
 --------------------------------------------------------------------------------
 10. LỖ HỔNG ĐÃ BIẾT / KHÔNG NẰM TRONG SCOPE
@@ -266,7 +273,9 @@
   vsim -c -do cov_tb_layer.do
   vsim -c -do cov_tb_fsm.do
   vsim -c -do cov_tb_top.do
-  vsim -c -do cov_merge_report.do       # merge -> cov_merged.ucdb + cov_report.txt
+  vsim -c -do cov_merge_report.do       # merge -> cov_merged.ucdb
+                                        #   + cov_report_functional.txt (-code bcefs, KHÔNG toggle)
+                                        #   + cov_report_raw.txt        (toàn metric, minh bạch)
 
   Yêu cầu file trong CWD (questa workdir): conv1-4_w.hex, conv_bias.hex,
   fc_weights.hex, ecg_sample0/1/2.hex, expected_results.hex, golden/sample{0,1,2}/*.

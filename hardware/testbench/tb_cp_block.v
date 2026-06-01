@@ -502,6 +502,44 @@ module tb_cp_block;
             end
         end
 
+        // ── TC19: FEC — relu_v=1 while compute_en_in=0 must NOT pool ───
+        // Closes the focused-condition gap on `if (relu_v && compute_en_in)`
+        // (cp_block.v:181 Row 3): proves compute_en_in independently gates the
+        // pool. Feed pixels with compute_en_in=1 until relu_v rises, then drop
+        // compute_en_in on that exact cycle and check pool_cnt does NOT advance.
+        apply_reset;
+        in_ch = 4'd1; nb = 5'd0; relu_en = 0;
+        taps_in = 40'h0;
+        w       = 40'h0;
+        bias_in = 32'sd55;
+        begin : tc19_check
+            integer t19, pc_before;
+            reg armed;
+            armed = 0;
+            // Stream pixels (compute_en_in=1) and watch internal relu_v.
+            for (t19 = 0; t19 < 30 && !armed; t19 = t19 + 1) begin
+                compute_en_in = 1; a_in = 0;
+                @(posedge clk); #1;
+                // When relu_v is asserted, the NEXT pool eval would count it.
+                if (dut.relu_v === 1'b1) begin
+                    pc_before = dut.pool_cnt;   // snapshot before the gated cycle
+                    compute_en_in = 0;          // <-- relu_v=1 AND compute_en_in=0
+                    @(posedge clk); #1;          // pool eval happens here, gated off
+                    armed = 1;
+                end
+            end
+            if (!armed) begin
+                $display("FAIL [TC19_fec_relu_v_no_compute_en] relu_v never observed  (%0t ns)", $time - tc_t0);
+                fail_cnt = fail_cnt + 1;
+            end else if (dut.pool_cnt === pc_before) begin
+                $display("PASS [TC19_fec_relu_v_no_compute_en] pool_cnt held=%0d (relu_v=1,ce=0 not counted)  (%0t ns)", dut.pool_cnt, $time - tc_t0);
+                pass_cnt = pass_cnt + 1;
+            end else begin
+                $display("FAIL [TC19_fec_relu_v_no_compute_en] pool_cnt advanced %0d->%0d despite ce=0  (%0t ns)", pc_before, dut.pool_cnt, $time - tc_t0);
+                fail_cnt = fail_cnt + 1;
+            end
+        end
+
         // ── Summary ────────────────────────────────────────────────────
         $display("=== SUMMARY: %0d PASS, %0d FAIL ===", pass_cnt, fail_cnt);
         if (fail_cnt === 0)

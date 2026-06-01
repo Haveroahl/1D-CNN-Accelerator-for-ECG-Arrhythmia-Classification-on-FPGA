@@ -19,3 +19,10 @@ coverage exclude -du gap_fc_argmax  -linerange 191 -reason EUR -comment {argmax_
 
 # avalon_slave.v — write case all-false (undefined write address)
 coverage exclude -du avalon_slave   -linerange 46  -reason EUR -comment {write case all-false: undefined avs_address, no side effect}
+
+# cp_engine.v L290: pong_we[oc] = cp_pool_write[oc] && cp_en[oc].
+# FEC Row 3 (cp_en[oc]=0 while pool_write[oc]=1) is UNREACHABLE for oc=0..3:
+# cp_en is only ever 0x00 (idle, no pool_write), 0x0F or 0xFF — bits [3:0] are
+# ALWAYS 1 during compute. So channels 0-3 can never be disabled while writing.
+# (Channels 4-7 DO get cp_en=0 in conv1/2 and their Row 3 is covered.)
+coverage exclude -du cp_engine -linerange 290 -reason EUR -comment {pong_we ch0-3: cp_en[3:0] always 1 when computing (0x0F/0xFF)}

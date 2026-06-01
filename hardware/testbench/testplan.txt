@@ -1,8 +1,9 @@
 ================================================================================
  TEST PLAN — CNN ECG Accelerator (DE10-Standard / Cyclone V)
  Mục tiêu: Functional coverage cao cho datapath + control RTL (>95%).
-           ĐẠT: Statement 100% / Branch 100% / FSM-state 100% (DU-merged, loại 6
-           default bất khả đạt + toggle data-bus). Chi tiết & cách đo: mục 9.
+           ĐẠT: Statement/Branch/Condition/Expression/FSM-state = 100% (DU-merged;
+           FEC reachable test bằng TC19, nhánh unreachable loại có lý do; toggle
+           data-bus bỏ). Chi tiết & cách đo: mục 9.
  Phương pháp: Unit test (block) → Integration (layer) → System (full inference)
               → Bit-exact golden (Python QAT-INT8) → Trace (thesis).
  Tool: Questa/ModelSim (D:/altera_lite/.../questa_fse). Chạy bằng các .do trong
@@ -73,6 +74,7 @@
     TC16  NOP (compute_en_in=0) → không pool_write    → cnt=0 [gating compute_en]
     TC17  pool_rst giữa window → pool_cnt reset        → fire sau 5 fresh + val=33
     TC18  rst clears pipeline → không pool_write rác   → [reset toàn cục]
+    TC19  relu_v=1 khi compute_en_in=0 → pool KHÔNG đếm → [FEC gate độc lập]
 
   COVERAGE đóng góp: round-half-up (lên/không lên), clamp 2 biên, ReLU on/off×dấu,
     pool max ở mọi vị trí, pool reset, multi-channel ACC (1/4/8), NOP/reset.
@@ -184,14 +186,14 @@
 --------------------------------------------------------------------------------
 8. KẾT QUẢ KỲ VỌNG (pass criteria — toàn bộ phải xanh)
 --------------------------------------------------------------------------------
-  tb_cp_block     : 22 PASS / 0 FAIL
+  tb_cp_block     : 23 PASS / 0 FAIL  (gồm TC19 FEC relu_v&&compute_en gate)
   tb_layer        :  8 PASS / 0 FAIL
   tb_fsm          :  8 PASS / 0 FAIL  (8 cạnh main-FSM, gồm DONE→LOAD re-start)
   tb_top          : 10 PASS / 0 FAIL  (21 bit-exact + argmax + latency + avalon default)
   tb_top_probe    :  7 PASS / 0 FAIL  (bit-exact sample0)
 
 --------------------------------------------------------------------------------
-9. ĐO COVERAGE THẬT (Questa code coverage) — Statement/Branch/FSM-state = 100%
+9. ĐO COVERAGE THẬT (Questa) — Statement/Branch/Condition/Expression/FSM-state=100%
 --------------------------------------------------------------------------------
   Cách đo (script trong questa workdir):
     vsim -c -do cov_tb_cp_block.do     # -> cov_cp_block.ucdb
@@ -222,31 +224,43 @@
   ── KẾT QUẢ FUNCTIONAL (DU-merged, sau exclude, -code bcefs) ────────────────
     Metric            Coverage     Ghi chú
     --------------    ---------    ------------------------------------------
-    Statements        100.00%      (402/402)
+    Statements        100.00%      (394/394)
     Branches          100.00%      (259/259)
+    Conditions        100.00%      (69/69) — FEC relu_v&&ce đóng bằng TC19
+    Expressions       100.00%      (8/8)  — pong_we ch0-3 loại (unreachable)
     FSM States        100.00%      (14/14)
-    Conditions         98.55%      1 FEC sub-row (tổ hợp tương quan, hiếm)
-    Expressions        83.33%      4 FEC sub-row (focused-expr, sub-branch)
     FSM Transitions    42.10%      step-counter gap_fc (KHÔNG phải control FSM)
 
-  RAW (trước exclude, DU-merged): Statement 99.75% / Branch 97.80% — 7 miss đúng
-  bằng 6 default unreachable + (đã có) → sau exclude = 100%.
-
   ── DIỄN GIẢI (vì sao đây là 100% chính đáng) ──────────────────────────────
-  * Statement / Branch / FSM-state = 100% — đây là bar functional sign-off chuẩn.
-    100% đạt được KHÔNG bằng cách test code chết, mà bằng (A) gộp đúng coverage
-    đã có + (B) loại minh bạch 6 nhánh phòng thủ bất khả đạt (có -reason EUR và
-    -comment, tra cứu được trong cov_report_functional.txt).
-  * Condition 98.55% / Expression 83.33%: FEC (focused expression/condition) ở
-    mức sub-branch — yêu cầu mọi tổ hợp input độc lập toggle; vài tổ hợp không
-    đạt do input tương quan. KHÔNG ảnh hưởng statement/branch=100%; report as-is.
-  * FSM-Transition 42%: artifact — Questa nhận step-counter (gap_step/fc_step/
+  Statement/Branch/Condition/Expression/FSM-state = 100% đạt được bằng 3 việc,
+  KHÔNG phải test code chết:
+  (A) DU-merge gộp đúng coverage đã có sẵn ở các TB khác nhau.
+  (B) TC19 — viết test THẬT cho 1 nhánh FEC REACHABLE: nhánh
+      `relu_v && compute_en_in` (cp_block:181) cần case relu_v=1 nhưng
+      compute_en_in=0 (dữ liệu hợp lệ tới pool nhưng compute bị tắt). Đây là
+      tổ hợp CÓ THỂ xảy ra → KHÔNG được loại, phải test. TC19 ép đúng case này,
+      kiểm pool_cnt không tăng → đóng FEC Condition lên 100%.
+  (C) Loại minh bạch các nhánh UNREACHABLE (reason EUR, có -comment tra cứu
+      trong cov_report_functional.txt):
+        - 6 default/case-all-false (cnn_controller, gap_fc, avalon) — biến
+          state/address luôn trong tập định nghĩa.
+        - pong_we ch0-3 (cp_engine:290): cp_en[3:0] LUÔN =1 khi compute
+          (0x0F/0xFF), nên "cp_en=0 & pool_write=1" bất khả cho ch0-3.
+
+  RANH GIỚI quan trọng (phân biệt với false path):
+    * REACHABLE-but-untested (relu_v case) → PHẢI test (TC19), KHÔNG exclude.
+    * UNREACHABLE (default, cp_en[3:0]) → exclude chính đáng, như false path.
+    Đây là lý do FEC relu_v được test còn cp_en ch0-3 thì loại — KHÁC bản chất.
+
+  FSM-Transition 42%: artifact — Questa nhận step-counter (gap_step/fc_step/
     argmax_step) là "FSM". MAIN control-FSM (layer_state) phủ 100% cạnh hợp lệ
-    (8/8, tb_fsm). Không loại bằng exclude để minh bạch; ghi rõ là non-control.
+    (8/8, tb_fsm). KHÔNG loại để minh bạch; ghi rõ là non-control counter.
+  Toggle: BỎ khỏi functional (data-bus noise, giá trị đã bit-exact qua tb_top).
 
   TUYÊN BỐ CHÍNH ĐÁNG cho thesis/paper:
-    "Statement & branch coverage 100%, FSM-state 100% (DU-merged across 4
-     testbenches, with 6 provably-unreachable defensive defaults excluded;
+    "Statement, branch, condition, expression, and FSM-state coverage all 100%
+     (DU-merged across 4 testbenches; reachable focused-condition cases tested
+     directly, provably-unreachable defensive branches excluded with rationale;
      toggle excluded as data-bus noise verified bit-exact)."
 
 --------------------------------------------------------------------------------
@@ -263,10 +277,9 @@
   - Main-FSM transition: ĐÃ đóng bằng tb_fsm (8/8 cạnh, gồm re-start). FSM-trans
     tổng 42% là step-counter phụ gap_fc (non-control) — ghi rõ, không loại/không
     cần test thêm.
-  - Condition 98.55% / Expression 83.33% (FEC sub-branch): vài tổ hợp input tương
-    quan không toggle độc lập được. Không ảnh hưởng statement/branch=100%; chấp
-    nhận, report as-is. Nếu reviewer yêu cầu, loại bằng -reason ECOP/EEXP có giải
-    trình per-row.
+  - Condition/Expression FEC: ĐÃ đạt 100% — case reachable (relu_v&&compute_en)
+    test bằng TC19; case unreachable (pong_we ch0-3) loại có giải trình. Không
+    còn FEC sub-branch hở.
 
 --------------------------------------------------------------------------------
 11. LỆNH CHẠY

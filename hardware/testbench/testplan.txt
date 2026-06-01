@@ -229,7 +229,7 @@
     Conditions        100.00%      (69/69) — FEC relu_v&&ce đóng bằng TC19
     Expressions       100.00%      (8/8)  — pong_we ch0-3 loại (unreachable)
     FSM States        100.00%      (14/14)
-    FSM Transitions    42.10%      step-counter gap_fc (KHÔNG phải control FSM)
+    FSM Transitions    42.10%      cạnh ảo phi-tuần-tự (Questa over-approx) — xem dưới
 
   ── DIỄN GIẢI (vì sao đây là 100% chính đáng) ──────────────────────────────
   Statement/Branch/Condition/Expression/FSM-state = 100% đạt được bằng 3 việc,
@@ -252,9 +252,16 @@
     * UNREACHABLE (default, cp_en[3:0]) → exclude chính đáng, như false path.
     Đây là lý do FEC relu_v được test còn cp_en ch0-3 thì loại — KHÁC bản chất.
 
-  FSM-Transition 42%: artifact — Questa nhận step-counter (gap_step/fc_step/
-    argmax_step) là "FSM". MAIN control-FSM (layer_state) phủ 100% cạnh hợp lệ
-    (8/8, tb_fsm). KHÔNG loại để minh bạch; ghi rõ là non-control counter.
+  FSM-Transition 42% (16/38) — KHÔNG phải gap verify, mà là OVER-APPROXIMATION
+    của Questa. 2 FSM được nhận: layer_state (controller) và fc_sub_state (gap_fc).
+    Cả 2 là FSM điều khiển THẬT. Questa sinh transition bin cho MỌI cặp state vì
+    các gán `state<=` nằm chung 1 case → giả định state-bất-kỳ → state-bất-kỳ.
+    16 cạnh covered = TẤT CẢ cạnh RTL cho phép (IDLE→LOAD→CONV1..4→GAP_FC→DONE,
+    + DONE→LOAD streaming [tb_fsm], + DONE→IDLE). 22 cạnh uncovered đều là nhảy
+    cóc/lùi/thoát-giữa-chừng (CONV1→CONV4, CONV3→CONV2, CONV2→IDLE...) mà pipeline
+    tuyến tính KHÔNG cho phép — bất khả đạt, giống false path.
+    → Giữ 42% + ghi rõ thay vì exclude 22 cạnh ảo để "dọn số". Bằng chứng FSM đúng
+      là: FSM-STATE 100% + 8/8 cạnh hợp lệ (tb_fsm) + bit-exact 21 điểm.
   Toggle: BỎ khỏi functional (data-bus noise, giá trị đã bit-exact qua tb_top).
 
   TUYÊN BỐ CHÍNH ĐÁNG cho thesis/paper:
@@ -274,9 +281,10 @@
     glitch power-on (ngoài phạm vi functional sim).
   - Weight reload qua Avalon (Phase B) chưa có TB regression — bổ sung khi
     implement weight_ram.v (mục tiêu: 21/21 bit-exact PASS với load runtime).
-  - Main-FSM transition: ĐÃ đóng bằng tb_fsm (8/8 cạnh, gồm re-start). FSM-trans
-    tổng 42% là step-counter phụ gap_fc (non-control) — ghi rõ, không loại/không
-    cần test thêm.
+  - Main-FSM transition: ĐÃ đóng bằng tb_fsm (8/8 cạnh hợp lệ, gồm re-start).
+    FSM-trans tổng 42% thấp do Questa over-approximate (liệt kê cả cạnh phi-tuần-tự
+    CONV1→CONV4... mà RTL tuyến tính cấm). Mọi cạnh hợp lệ đã phủ; giữ 42% minh
+    bạch, KHÔNG exclude/không cần test thêm (xem §9).
   - Condition/Expression FEC: ĐÃ đạt 100% — case reachable (relu_v&&compute_en)
     test bằng TC19; case unreachable (pong_we ch0-3) loại có giải trình. Không
     còn FEC sub-branch hở.

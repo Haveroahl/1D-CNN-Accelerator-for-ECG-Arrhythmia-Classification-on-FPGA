@@ -99,10 +99,18 @@ def evaluate(model, loader, device):
 
 # ── Training loop ──────────────────────────────────────────────────────────
 
+def compute_class_weights(y_train, num_classes=4, device='cpu'):
+    """Inverse-frequency class weights, normalized to sum=num_classes."""
+    counts = np.bincount(y_train, minlength=num_classes).astype(np.float32)
+    weights = 1.0 / (counts + 1e-8)
+    weights = weights / weights.sum() * num_classes
+    return torch.tensor(weights, dtype=torch.float32, device=device)
+
+
 def finetune(model, train_loader, val_loader, device,
-             epochs=20, lr=1e-3, label='finetune'):
+             epochs=20, lr=1e-3, label='finetune', class_weights=None):
     opt = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(weight=class_weights) if class_weights is not None else nn.CrossEntropyLoss()
     best_val_acc, best_sd = 0.0, None
 
     for ep in range(epochs):
@@ -129,14 +137,35 @@ def finetune(model, train_loader, val_loader, device,
 
 # ── Dataset helpers ───────────────────────────────────────────────────────
 
-def npz_loaders(npz_path, batch_size=128):
+def undersample_train(X, y, sr_ratio=3.0, seed=42):
+    """Undersample SR (class 3) so SR_count <= sr_ratio * second_largest_count."""
+    rng = np.random.default_rng(seed)
+    counts = np.bincount(y, minlength=4)
+    second = sorted(counts)[-2]
+    sr_cap = int(second * sr_ratio)
+    sr_idx = np.where(y == 3)[0]
+    other_idx = np.where(y != 3)[0]
+    if len(sr_idx) > sr_cap:
+        sr_idx = rng.choice(sr_idx, size=sr_cap, replace=False)
+    idx = np.concatenate([other_idx, sr_idx])
+    rng.shuffle(idx)
+    new_counts = np.bincount(y[idx], minlength=4)
+    names = ['AFIB', 'GSVT', 'SB', 'SR']
+    print('  Undersampled train: ' + ' '.join(n+':'+str(c) for n, c in zip(names, new_counts)))
+    return X[idx], y[idx]
+
+
+def npz_loaders(npz_path, batch_size=128, undersample_sr=False, sr_ratio=3.0):
     d = np.load(npz_path)
+    X_train, y_train = d['X_train'], d['y_train']
+    if undersample_sr:
+        X_train, y_train = undersample_train(X_train, y_train, sr_ratio=sr_ratio)
     def make(X, y):
         return DataLoader(
             TensorDataset(torch.tensor(X), torch.tensor(y)),
             batch_size=batch_size, shuffle=False, num_workers=0)
     train = DataLoader(
-        TensorDataset(torch.tensor(d['X_train']), torch.tensor(d['y_train'])),
+        TensorDataset(torch.tensor(X_train), torch.tensor(y_train)),
         batch_size=batch_size, shuffle=True, num_workers=0)
     val  = make(d['X_val'],  d['y_val'])
     test = make(d['X_test'], d['y_test'])
@@ -168,14 +197,20 @@ def main():
     p.add_argument('--output',       default=r'software/python/results/cross_eval')
     p.add_argument('--finetune_epochs', type=int, default=20)
     p.add_argument('--batch_size',   type=int, default=128)
+    p.add_argument('--undersample_sr', action='store_true',
+                   help='Undersample SR class in train set (sr_ratio=3x second largest)')
+    p.add_argument('--sr_ratio', type=float, default=3.0)
     args = p.parse_args()
 
     os.makedirs(args.output, exist_ok=True)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"[INFO] Device: {device}")
 
-    ptbxl_train, ptbxl_val, ptbxl_test = npz_loaders(args.ptbxl, args.batch_size)
+    ptbxl_train, ptbxl_val, ptbxl_test = npz_loaders(
+        args.ptbxl, args.batch_size,
+        undersample_sr=args.undersample_sr, sr_ratio=args.sr_ratio)
     results = {}
+    print('[INFO] undersample_sr=' + str(args.undersample_sr) + '  sr_ratio=' + str(args.sr_ratio))
 
     # ── C1: Chapman -> Chapman (in-distribution) ────────────────────────
     print("\n[C1] Chapman -> Chapman (in-distribution)")

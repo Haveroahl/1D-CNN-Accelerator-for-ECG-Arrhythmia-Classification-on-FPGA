@@ -103,6 +103,39 @@ KEY FINDINGS
    Recovers to 0.805 after full fine-tune.
 
 ======================================================
+CLASS BALANCING EXPERIMENTS (C3/C4/C5 only)
+======================================================
+
+Motivation: PTB-XL train set heavily imbalanced (SR=83%, AFIB=8%, GSVT=5%, SB=3%).
+Tested 3 balancing strategies to see if minority class F1 improves.
+
+Train set sizes:
+  Full (unweighted):       AFIB:1113  GSVT:709  SB:433  SR:11700  total=13955
+  Undersample SR 3x:       AFIB:1113  GSVT:709  SB:433  SR:3339   total=5594
+  Undersample SR 1x (bal): AFIB:1113  GSVT:709  SB:433  SR:1113   total=3368
+
+Results — Accuracy / F1-macro:
+
+Strategy              C3 linear probe    C4 full finetune   C5 from scratch
+-----------------------------------------------------------------------------
+Unweighted (full)     0.9249 / 0.7695    0.9329 / 0.7915    0.9279 / 0.7815
+Weighted loss         0.8509 / 0.6986    0.8712 / 0.7182    0.8809 / 0.7166
+Undersample SR 3x     0.9036 / 0.7498    0.9216 / 0.7823    0.8952 / 0.7321
+Undersample SR 1x     0.8572 / 0.6970    0.8682 / 0.7135    0.8699 / 0.6987
+
+CONCLUSION: Unweighted full dataset wins on both acc and F1-macro across all modes.
+All balancing strategies hurt performance — trend: more aggressive balancing = worse results.
+
+ROOT CAUSE: SB/SR confusion is a clinical boundary problem (HR threshold 60 bpm),
+not a sampling bias problem. Reducing SR samples or penalizing SR loss does not
+help model distinguish SB from SR — it only reduces total training data and
+degrades generalization on the SR-dominated test set.
+
+DECISION: Use unweighted full dataset as official results for paper.
+Balancing experiments documented here as evidence that standard remedies
+do not apply — supports the argument that SB/SR ambiguity is inherent.
+
+======================================================
 FILES
 ======================================================
 Script:    software/python/cross_eval/ptbxl_preprocess.py

@@ -131,12 +131,14 @@
        after_pool3 (160) | after_pool4 (32) | after_gap (8) | logits_fc (4)
      → Chứng minh Python↔RTL khớp ở MỌI layer (C2 của paper).
 
-  B. Control/status test case (TC01..TC06):
+  B. Control/status test case (TC01..TC06 + TC_avalon_read_default):
     TC01 busy=0 trước START (IDLE)                 [status idle]
     TC02 busy=1 sau START                          [busy assert]
     TC03a done_latched=1 sau inference             [done latch]
     TC04/05/06 result == expected (3 sample: 3,1,2)[argmax đúng từng sample]
     TC06 cycle_count = 5216 (sample0)              [latency deterministic]
+    TC_avalon_read_default: đọc địa chỉ unmapped (0x1F) → 0
+                                                   [nhánh default avalon read]
 
   COVERAGE đóng góp: tích hợp toàn bộ đường dữ liệu + Avalon control/status +
     đúng class + đúng latency. Là bằng chứng "đúng chức năng cuối".
@@ -185,7 +187,7 @@
   tb_cp_block     : 22 PASS / 0 FAIL
   tb_layer        :  8 PASS / 0 FAIL
   tb_fsm          :  8 PASS / 0 FAIL  (8 cạnh main-FSM, gồm DONE→LOAD re-start)
-  tb_top          :  9 PASS / 0 FAIL  (gồm 21 bit-exact stage + argmax + latency)
+  tb_top          : 10 PASS / 0 FAIL  (21 bit-exact + argmax + latency + avalon default)
   tb_top_probe    :  7 PASS / 0 FAIL  (bit-exact sample0)
 
 --------------------------------------------------------------------------------
@@ -220,6 +222,22 @@
   (w_rom_conv1..4), bias, acc 32-bit, SRW, datapath — phần lớn hằng hoặc phụ
   thuộc dữ liệu. Toggle KHÔNG đo đúng tính đúng chức năng cho khối số học; GIÁ TRỊ
   của chúng đã được chứng minh BIT-EXACT bởi tb_top (bằng chứng đúng thật sự).
+
+  COVERAGE PER-MODULE (đo trong tb_top — nơi mỗi module chạy đầy đủ; statement/
+  branch, sau TC_avalon_read_default):
+    Module            Statement   Branch    Nhánh miss còn lại
+    --------------    ---------   ------    -----------------------------------
+    cp_block          100%        100%      —
+    ping_pong (u_pp)  100%        100%      —
+    cp_engine (u_cpe) 100%        ~89%      pad biên SRW (defensive)
+    gap_fc (u_gfa)    100%        94.87%    default case (unreachable)
+    avalon (u_avs)    100%        93.75%    write "all-false" (undefined addr)
+    controller(u_ctrl)96.90%      90.90%    3× default FSM (illegal-state)
+
+  → Mọi nhánh CHỨC NĂNG đã phủ. Nhánh miss còn lại 100% là default/illegal-state
+    phòng thủ HOẶC pad biên không xảy ra khi vận hành hợp lệ — KHÔNG cần thêm TB.
+    (Đã kiểm chứng trực tiếp: argmax tie-break 196/200/204 đều 2/2 branch=100%;
+     không có case argmax nào còn hở.)
 
   PHÂN TÍCH per-metric (số functional, đâu mạnh / đâu là artifact):
   - Statement 93.20% / Branch 86.99%: chỉ số chức năng cốt lõi — đa số nhánh logic

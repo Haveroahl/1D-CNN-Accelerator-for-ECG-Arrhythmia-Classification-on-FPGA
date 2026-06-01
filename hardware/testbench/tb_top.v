@@ -597,6 +597,20 @@ module tb_top;
             $display("[TC01] 10 samples written via Avalon-MM");
         end
 
+        // ── TC_AVRD: Avalon read of an UNMAPPED address → default returns 0 ─
+        // Covers the `default: avs_readdata <= 32'b0` branch in avalon_slave.v.
+        begin : tc_avalon_read_default
+            reg [31:0] rdata_av;
+            avs_rd(5'h1F, rdata_av);   // 0x1F unmapped → default branch
+            if (rdata_av === 32'b0) begin
+                $display("PASS [TC_avalon_read_default] unmapped addr -> 0  (%0t ns)", $time - tc_t0);
+                pass_cnt = pass_cnt + 1;
+            end else begin
+                $display("FAIL [TC_avalon_read_default] got=%08x expected=0  (%0t ns)", rdata_av, $time - tc_t0);
+                fail_cnt = fail_cnt + 1;
+            end
+        end
+
         // ── TC02: START → busy=1 within 2 cycles ───────────────────────
         $display("[TC02] START → check busy...");
         begin : tc02

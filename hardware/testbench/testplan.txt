@@ -1,0 +1,241 @@
+================================================================================
+ TEST PLAN — CNN ECG Accelerator (DE10-Standard / Cyclone V)
+ Mục tiêu: Functional coverage cao cho datapath + control RTL (mục tiêu >95%).
+           Số đo thực hiện tại: Statement 91.27% / Branch 84.39% — xem mục 9 để
+           biết khoảng trống cần lấp trước khi tuyên bố đạt >95%.
+ Phương pháp: Unit test (block) → Integration (layer) → System (full inference)
+              → Bit-exact golden (Python QAT-INT8) → Trace (thesis).
+ Tool: Questa/ModelSim (D:/altera_lite/.../questa_fse). Chạy bằng các .do trong
+       hardware/fpga/simulation/questa/.
+================================================================================
+
+--------------------------------------------------------------------------------
+0. ĐỐI TƯỢNG KIỂM TRA (RTL Modules Under Test)
+--------------------------------------------------------------------------------
+  M1  cp_block.v        — Conv-pool block 1 kênh: pipeline S1..S9
+                          (MULT → adder tree → ACC → +bias → rescale shift +
+                           round-half-up → clamp[-127,127] → ReLU → MaxPool K=5).
+  M2  cp_engine.v       — 8× cp_block song song + SRW (shift-register window) +
+                          weight/bias store ($readmemh) + delay chain a_d5/ce_d5 +
+                          pad logic (front/back) cho Conv1.
+  M3  cnn_controller.v  — FSM: IDLE→LOAD→CONV1→CONV2→CONV3→CONV4→GAP_FC→DONE,
+                          phát nb/relu_en/in_len/cp_en per-layer, prefetch, bank_sel.
+  M4  gap_fc_argmax.v   — GAP (floor sum/4) → FC(8→4, nb=0) → Argmax → result[1:0].
+  M5  ping_pong_sram.v  — Dual-bank inter-layer SRAM 8 kênh, bank_sel toggle.
+  M6  input_sram.v      — Input ECG 2500×8b, HPS write / CP read.
+  M7  ecg_accelerator_top.v — Wire toàn bộ M1..M6 + avalon_slave.
+  M8  avalon_slave.v    — Avalon-MM, các register control/status/result.
+
+--------------------------------------------------------------------------------
+1. CHIẾN LƯỢC & PHÂN TẦNG (tại sao cần nhiều TB)
+--------------------------------------------------------------------------------
+  Một TB system-level (tb_top) chứng minh "đúng kết quả" nhưng KHÔNG đủ coverage:
+  nhiều nhánh điều khiển (clamp biên, ReLU âm, pool_rst, NOP, prefetch gating)
+  hiếm khi bị kích hoạt bởi dữ liệu ECG thực. Do đó dùng các tầng bổ trợ nhau:
+
+    Tầng        TB                  Cấp độ        Cái được verify chính
+    ----------  ------------------  ------------  -----------------------------
+    Unit        tb_cp_block         M1            Mọi nhánh datapath/pool 1 block
+    Integration tb_layer            M2,M3,M5,M7   Control/timing Conv1→Conv2 thật
+    System      tb_top              M1..M8        Inference end-to-end + bit-exact
+    Trace       tb_top_probe        M1..M8        Bit-exact + trace từng cycle (thesis)
+
+--------------------------------------------------------------------------------
+2. TESTBENCH 1 — tb_cp_block.v   (UNIT, .do: run_tb_cp_block.do)
+--------------------------------------------------------------------------------
+  VERIFY: toàn bộ pipeline 1 cp_block (M1) ở mức nhánh logic, drive trực tiếp
+          a_in/compute_en_in/taps/w/bias (bỏ qua cp_engine delay chain).
+  LƯU Ý KỸ THUẬT: pool S9 đếm pixel khi (relu_v && compute_en_in); relu_v trễ 9
+          stage. Driver drive đủ pixel rồi DRAIN (compute_en_in=1, a_in parked ≠
+          in_ch-1 → không sinh out_valid mới) để pixel cuối được pool. pool_write
+          (xung 1-cy) được latch (pw_seen/pw_value/pw_count) cho check đọc.
+
+  Test case (22):
+    TC01a Zero pipeline (taps=0,bias=0,nb=0)          → pool_out=0  [reset/zero path]
+    TC01b Basic pipeline (taps≠0, nb=8, bias=0)       → pool_out=0  [MULT+tree]
+    TC02a Round-half-up nb=8, bias=128                → 1  [(128+128)>>8] LÀM TRÒN LÊN
+    TC02b Round-half-up nb=8, bias=127                → 0  [biên không làm tròn]
+    TC03  Clamp upper (nb=0, bias=200)                → 127  [bão hòa dương]
+    TC04  Clamp lower (nb=0, bias=-200)               → -127 [bão hòa âm]
+    TC05  Clamp exact upper (bias=127)                → 127  [biên trên đúng]
+    TC06  Clamp exact lower (bias=-127)               → -127 [biên dưới đúng]
+    TC07  ReLU on + âm (relu_en=1, bias=-50)          → 0    [ReLU cắt âm]
+    TC08  ReLU on + dương (relu_en=1, bias=50)        → 50   [ReLU giữ dương]
+    TC09  ReLU off + âm (relu_en=0, bias=-50)         → -50  [Conv1-3 giữ âm]
+    TC10  MaxPool — max ở pixel đầu [100,50,30,20,10] → 100  [pool đầu window]
+    TC11  MaxPool — max ở pixel cuối [10,20,30,50,100]→ 100  [pool cuối window]
+    TC12  pool_write fire đúng 1 lần cho 5 pixel      → count=1 [chu kỳ pool K=5]
+    TC13a Window 1 (5 pixel = 20)                     → 20   [2 window liên tiếp]
+    TC13b Window 2 (5 pixel = 5)                      → 5    [pool_cnt reset đúng]
+    TC14  IN_CH=4 accumulate (acc 4 kênh)             → 40   [ACC nhiều kênh]
+    TC15  IN_CH=8 accumulate (acc 8 kênh = Conv4)     → 80   [ACC max-channel]
+    TC16  NOP (compute_en_in=0) → không pool_write    → cnt=0 [gating compute_en]
+    TC17  pool_rst giữa window → pool_cnt reset        → fire sau 5 fresh + val=33
+    TC18  rst clears pipeline → không pool_write rác   → [reset toàn cục]
+
+  COVERAGE đóng góp: round-half-up (lên/không lên), clamp 2 biên, ReLU on/off×dấu,
+    pool max ở mọi vị trí, pool reset, multi-channel ACC (1/4/8), NOP/reset.
+    → Đây là TB phủ NHÁNH datapath cao nhất (các case khó kích bằng dữ liệu thật).
+
+--------------------------------------------------------------------------------
+3. TESTBENCH 2 — tb_layer.v   (INTEGRATION, .do: run_tb_layer.do)
+--------------------------------------------------------------------------------
+  VERIFY: control & timing thật của cp_engine + controller + ping_pong (M2,M3,M5,M7)
+          cho Conv1 và chuyển tiếp Conv1→Conv2→Conv3. Dùng input tổng hợp; tập
+          trung vào ĐÚNG TIMING/ĐỊA CHỈ/GATING, không phải giá trị bit-exact.
+
+  Test case (8):
+    TC01 Không có pool_write trong 14 cycle prefetch đầu  [prefetch gating đúng]
+    TC02 pong_addr đạt 499 ở pool_write cuối Conv1         [địa chỉ ghi pong max]
+    TC03 Đúng 500 pool_write cho Conv1 (2500→/5=500)       [đếm output Conv1]
+    TC04 layer_state tiến tới CONV2                         [FSM transition]
+    TC05 bank_sel toggle 0→1 sau Conv1                      [ping-pong swap]
+    TC06 cp_en = 0x0F trong Conv1/2 (4 kênh active)         [cp_en mask Conv1-2]
+    TC07 cp_en[7:4]=0 → pong_we[4..7] gated                 [kênh cao tắt đúng]
+    TC08 cp_en = 0xFF cho Conv3/4 (8 kênh active)           [cp_en mask Conv3-4]
+
+  COVERAGE đóng góp: FSM state transitions, prefetch/back-pad timing, bank_sel,
+    cp_en bitmask cho mọi layer, đếm số lần ghi pong (độ dài output đúng).
+
+--------------------------------------------------------------------------------
+4. TESTBENCH 3 — tb_top.v   (SYSTEM + BIT-EXACT, .do: run_tb_top.do)
+--------------------------------------------------------------------------------
+  VERIFY: toàn hệ thống (M1..M8) qua Avalon-MM, end-to-end inference, đối chiếu
+          BIT-EXACT với golden Python QAT-INT8. Chạy 3 sample (idx 0,1,2).
+
+  A. Bit-exact stage compare (×3 sample = 21 điểm), tol ±10 LSB (round/GAP):
+       input_int8 (2500) | after_pool1 (2000) | after_pool2 (400) |
+       after_pool3 (160) | after_pool4 (32) | after_gap (8) | logits_fc (4)
+     → Chứng minh Python↔RTL khớp ở MỌI layer (C2 của paper).
+
+  B. Control/status test case (TC01..TC06):
+    TC01 busy=0 trước START (IDLE)                 [status idle]
+    TC02 busy=1 sau START                          [busy assert]
+    TC03a done_latched=1 sau inference             [done latch]
+    TC04/05/06 result == expected (3 sample: 3,1,2)[argmax đúng từng sample]
+    TC06 cycle_count = 5216 (sample0)              [latency deterministic]
+
+  COVERAGE đóng góp: tích hợp toàn bộ đường dữ liệu + Avalon control/status +
+    đúng class + đúng latency. Là bằng chứng "đúng chức năng cuối".
+
+--------------------------------------------------------------------------------
+5. TESTBENCH 4 — tb_top_probe.v   (TRACE + BIT-EXACT, .do: ecg_accelerator_top_probe.do)
+--------------------------------------------------------------------------------
+  VERIFY: cùng bit-exact 7 stage như tb_top nhưng cho 1 sample (ecg_sample0),
+          đồng thời PROBE từng cycle mọi tín hiệu datapath (Conv1-4/GAP/FC/Argmax),
+          gated theo layer_state, lọc cycle không hợp lệ.
+  MỤC ĐÍCH: trace để verify thủ công + hình minh hoạ chương thực nghiệm (thesis).
+            Không thêm nhánh logic mới so với tb_top → coverage chồng lấn, nhưng
+            cung cấp observability (waveform/transcript) cho debug & tài liệu.
+
+  Kết quả kỳ vọng: 7 PASS / 0 FAIL (sample0), argmax=3.
+
+--------------------------------------------------------------------------------
+7. MA TRẬN COVERAGE (TB nào phủ module/đặc tính nào)
+--------------------------------------------------------------------------------
+  Tính năng / Module           cp_block  layer  top  probe
+  ---------------------------   --------  -----  ---  -----
+  MULT + adder tree (S1-S4)        X        .     X     X
+  ACC multi-channel (1/4/8)        X        .     X     X
+  +bias                            X        .     X     X
+  Rescale shift + round-half-up    X        .     X     X
+  Clamp [-127,127] (2 biên)        X        .     ~     ~
+  ReLU on/off × dấu                X        .     X     X
+  MaxPool K=5 (đầu/cuối/reset)     X        X     X     X
+  pool_write count / chu kỳ        X        X     X     .
+  SRW + pad (front/back)           .        X     X     X
+  delay chain a_d5/ce_d5           .        X     X     X
+  FSM transitions (IDLE..DONE)     .        X     X     X
+  prefetch gating                  .        X     X     X
+  cp_en bitmask (0x0F/0xFF)        .        X     X     X
+  bank_sel toggle (ping-pong)      .        X     X     X
+  GAP floor(sum/4)                 .        .     X     X
+  FC (nb=0) + Argmax               .        .     X     X
+  Avalon control/status/result     .        ~     X     .
+  Latency = 5216 cycles            .        .     X     .
+  (X = phủ trực tiếp;  ~ = phủ gián tiếp;  . = không nhắm tới)
+
+--------------------------------------------------------------------------------
+8. KẾT QUẢ KỲ VỌNG (pass criteria — toàn bộ phải xanh)
+--------------------------------------------------------------------------------
+  tb_cp_block     : 22 PASS / 0 FAIL
+  tb_layer        :  8 PASS / 0 FAIL
+  tb_top          :  9 PASS / 0 FAIL  (gồm 21 bit-exact stage + argmax + latency)
+  tb_top_probe    :  7 PASS / 0 FAIL  (bit-exact sample0)
+
+--------------------------------------------------------------------------------
+9. ĐO COVERAGE THẬT (Questa code coverage) + KẾT QUẢ
+--------------------------------------------------------------------------------
+  Cách đo (script đã có sẵn trong questa workdir):
+    vsim -c -do cov_tb_cp_block.do     # -> cov_cp_block.ucdb
+    vsim -c -do cov_tb_layer.do        # -> cov_layer.ucdb
+    vsim -c -do cov_tb_top.do          # -> cov_top.ucdb
+    vsim -c -do cov_merge_report.do    # merge -> cov_merged.ucdb + cov_report.txt
+  (Compile bật +cover=bcefsx; vsim -coverage -onfinish stop để coverage save chạy
+   sau $finish. tb_top_probe loại khỏi đo: trùng path tb_top, không thêm bin mới.)
+
+  KẾT QUẢ ĐO (merge 3 TB, toàn thiết kế M1..M8 — số thực, KHÔNG làm tròn lên):
+    Statements        91.27%   (2323/2545)
+    Branches          84.39%   (1157/1371)
+    Conditions        73.15%
+    Expressions       78.20%
+    FSM States        71.42%   (20/28)
+    FSM Transitions   23.68%   (18/76)
+    Toggles           30.91%   (bị chi phối bởi ~40K bit weight/data — xem dưới)
+    Total (filtered)  64.72%
+
+  PHÂN TÍCH (vì sao tổng < 95% và đâu là coverage "thực chất"):
+  - Statement 91% / Branch 84%: đây là chỉ số chức năng cốt lõi — phần lớn nhánh
+    logic ĐÃ được phủ. Nhánh miss chủ yếu là default/illegal-state phòng thủ và
+    các tổ hợp layer chưa chạy hết qua cp_block đơn lẻ.
+  - Toggle 30.91% THẤP nhưng GÂY HIỂU LẦM: ~40,342 toggle bin gồm toàn bộ bit của
+    weight ROM (w_rom_conv1..4), bias store, acc 32-bit, SRW — đa số bit hằng/ít
+    đổi với 3 sample. Toggle coverage không phản ánh đúng functional cho khối
+    số học có nhiều bit dữ liệu tĩnh; nên LOẠI weight/data array khi báo cáo.
+  - FSM Transition 23.68% THẤP: chỉ chạy 1 inference path (IDLE→...→DONE) nên các
+    cạnh hiếm (error/timeout/skip-layer nếu có) chưa kích. Đây là khoảng trống
+    THẬT, cần thêm test (xem mục 10).
+
+  KẾT LUẬN TRUNG THỰC:
+    * "Statement ~91% / Branch ~84%" là con số nên báo cáo cho functional coverage.
+    * MỤC TIÊU >95% CHƯA ĐẠT trên metric tổng hợp. Để đạt cần: (a) thêm test FSM
+      transition (re-start, mọi cạnh), (b) lọc toggle bins của weight/data array,
+      (c) thêm condition/expression test cho controller.
+    * KHÔNG báo cáo ">95%" như fact cho đến khi đo lại đạt — số đo thật ở trên là
+      căn cứ để biết còn thiếu gì.
+
+--------------------------------------------------------------------------------
+10. LỖ HỔNG ĐÃ BIẾT / KHÔNG NẰM TRONG SCOPE
+--------------------------------------------------------------------------------
+  - avalon_slave: chưa có TB ghi/đọc trực tiếp từng register theo địa chỉ (chỉ
+    verify gián tiếp qua tb_top control/status). → thêm tb_avalon nếu cần 100%.
+  - input_sram/ping_pong_sram: không test ngẫu nhiên địa chỉ; verify qua đường
+    dữ liệu thực (đủ cho functional, chưa exhaustive memory BIST).
+  - Không test: lỗi clock/reset bất đồng bộ, X-propagation ngoài reset path,
+    glitch power-on (ngoài phạm vi functional sim).
+  - Weight reload qua Avalon (Phase B) chưa có TB regression — bổ sung khi
+    implement weight_ram.v (mục tiêu: 21/21 bit-exact PASS với load runtime).
+  - FSM transition coverage thấp (23.68%): chỉ chạy 1 inference path. Khoảng trống
+    cần thêm test re-start back-to-back + mọi cạnh FSM để nâng coverage.
+
+--------------------------------------------------------------------------------
+11. LỆNH CHẠY
+--------------------------------------------------------------------------------
+  cd hardware/fpga/simulation/questa
+
+  # Functional sim (pass/fail):
+  vsim -c -do run_tb_cp_block.do        # unit
+  vsim -c -do run_tb_layer.do           # integration
+  vsim -c -do run_tb_top.do             # system + bit-exact (3 samples)
+  vsim -c -do ecg_accelerator_top_probe.do   # trace + bit-exact (sample0)
+
+  # Code coverage (sinh .ucdb + report — xem mục 9):
+  vsim -c -do cov_tb_cp_block.do
+  vsim -c -do cov_tb_layer.do
+  vsim -c -do cov_tb_top.do
+  vsim -c -do cov_merge_report.do       # merge -> cov_merged.ucdb + cov_report.txt
+
+  Yêu cầu file trong CWD (questa workdir): conv1-4_w.hex, conv_bias.hex,
+  fc_weights.hex, ecg_sample0/1/2.hex, expected_results.hex, golden/sample{0,1,2}/*.
+  Tất cả sinh từ CÙNG checkpoint (export_weights_int8.py + generate_golden.py).
+================================================================================

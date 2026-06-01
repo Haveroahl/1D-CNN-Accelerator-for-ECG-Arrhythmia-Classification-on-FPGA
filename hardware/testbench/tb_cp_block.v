@@ -47,6 +47,21 @@ module tb_cp_block;
     integer pass_cnt, fail_cnt;
     time    tc_t0;
 
+    // ── pool_write capture ──────────────────────────────────────────────
+    // pool_write is a 1-cycle pulse that fires during the drive/drain phase,
+    // before a subsequent wait task runs. Latch it (and the pooled value) so
+    // checks can read it regardless of when they execute. Cleared by apply_reset.
+    reg               pw_seen;
+    reg signed [7:0]  pw_value;
+    integer           pw_count;
+    always @(posedge clk) begin
+        if (pool_write) begin
+            pw_seen  <= 1'b1;
+            pw_value <= pool_out;
+            pw_count <= pw_count + 1;
+        end
+    end
+
     // ── Tasks ─────────────────────────────────────────────────────────
 
     task apply_reset;
@@ -57,6 +72,7 @@ module tb_cp_block;
             bias_in = 0; nb = 0; relu_en = 0;
             taps_in = 40'h0;
             w       = 40'h0;
+            pw_seen = 1'b0; pw_value = 8'sd0; pw_count = 0;
             for (ri = 0; ri < 10; ri = ri + 1) begin
                 @(posedge clk); #1;
             end
@@ -66,7 +82,34 @@ module tb_cp_block;
         end
     endtask
 
-    // Drive N out_valid pulses for IN_CH=1 (a_in=0, compute_en_in=1)
+    // ── Pipeline-depth model (how the pool stage is driven) ─────────────────
+    // The S9 MaxPool stage counts a pixel while (relu_v && compute_en_in). relu_v
+    // lags out_valid by 9 pipeline stages (prod→sum01/23→sum0123→tree_out→
+    // acc_final→biased→shifted→clamped→relu_out), so a pixel is pooled only if
+    // compute_en_in is still high when its relu_v arrives ~9 cycles later.
+    //
+    // For IN_CH=1, out_valid = compute_en_in && (a_in == 0). To feed exactly K
+    // pooled pixels we therefore: (1) drive K out_valid pulses (a_in=0), then
+    // (2) DRAIN — hold compute_en_in=1 but park a_in=1 (≠ in_ch-1) so no NEW
+    // out_valid is generated while the in-flight pixels still drain through the
+    // gate. This counts exactly K pixels (one pool_write per 5), with no spurious
+    // extra pixels, matching how the controller streams a window in the full design.
+    localparam integer DRAIN_N = 5;    // one pool window
+
+    // Hold compute_en_in high with a_in parked off the valid slot so in-flight
+    // pixels reach the pool stage without creating new out_valids (IN_CH=1).
+    task drain_pipeline;
+        input integer cycles;
+        integer d;
+        begin
+            for (d = 0; d < cycles; d = d + 1) begin
+                compute_en_in = 1; a_in = 1;   // a_in != in_ch-1 => no out_valid
+                @(posedge clk); #1;
+            end
+        end
+    endtask
+
+    // Drive N out_valid pulses for IN_CH=1 (a_in=0), then drain so they all pool.
     task drive_pixels_inch1;
         input integer n;
         integer i;
@@ -75,6 +118,7 @@ module tb_cp_block;
                 compute_en_in = 1; a_in = 0;
                 @(posedge clk); #1;
             end
+            drain_pipeline(14);            // flush 9-stage pipeline + pool window
             compute_en_in = 0;
         end
     endtask
@@ -89,6 +133,11 @@ module tb_cp_block;
                     compute_en_in = 1; a_in = j;
                     @(posedge clk); #1;
                 end
+            end
+            // Drain: keep compute_en_in high but park a_in=0 (!=in_ch-1=3) -> no valid
+            for (i = 0; i < 14; i = i + 1) begin
+                compute_en_in = 1; a_in = 0;
+                @(posedge clk); #1;
             end
             compute_en_in = 0;
         end
@@ -105,33 +154,38 @@ module tb_cp_block;
                     @(posedge clk); #1;
                 end
             end
+            // Drain: keep compute_en_in high but park a_in=0 (!=in_ch-1=7) -> no valid
+            for (i = 0; i < 14; i = i + 1) begin
+                compute_en_in = 1; a_in = 0;
+                @(posedge clk); #1;
+            end
             compute_en_in = 0;
         end
     endtask
 
-    // Wait for pool_write with timeout; returns 1 on success, 0 on timeout
+    // Wait until a pool_write has been latched (may already have fired during
+    // the drive/drain phase). Returns 1 on success, 0 on timeout.
     task wait_pool_write;
         output reg success;
         integer timeout;
         begin
-            success = 0;
-            for (timeout = 0; timeout < 40 && !success; timeout = timeout + 1) begin
+            for (timeout = 0; timeout < 40 && !pw_seen; timeout = timeout + 1) begin
                 @(posedge clk); #1;
-                if (pool_write) success = 1;
             end
+            success = pw_seen;
         end
     endtask
 
-    // Check pool_out value and print PASS/FAIL
+    // Check the latched pooled value (pw_value) and print PASS/FAIL
     task check_val;
         input signed [7:0] expected;
         input [127:0] tc_name;
         begin
-            if ($signed(pool_out) === $signed(expected)) begin
-                $display("PASS [%0s] pool_out=%0d  (%0t ns)", tc_name, $signed(pool_out), $time - tc_t0);
+            if ($signed(pw_value) === $signed(expected)) begin
+                $display("PASS [%0s] pool_out=%0d  (%0t ns)", tc_name, $signed(pw_value), $time - tc_t0);
                 pass_cnt = pass_cnt + 1;
             end else begin
-                $display("FAIL [%0s] expected=%0d got=%0d  (%0t ns)", tc_name, $signed(expected), $signed(pool_out), $time - tc_t0);
+                $display("FAIL [%0s] expected=%0d got=%0d  (%0t ns)", tc_name, $signed(expected), $signed(pw_value), $time - tc_t0);
                 fail_cnt = fail_cnt + 1;
             end
         end
@@ -172,7 +226,7 @@ module tb_cp_block;
         apply_reset;
         in_ch = 4'd1; nb = 5'd0; relu_en = 0;
         taps_in = 40'h0; w = 40'h0; bias_in = 0;
-        drive_pixels_inch1(5);
+        drive_pixels_inch1(DRAIN_N);
         wait_pool_write(success);
         check_val(8'sd0, "TC01a_zero_pipeline");
 
@@ -182,7 +236,7 @@ module tb_cp_block;
         taps_in = {8'd5, 8'd4, 8'd3, 8'd2, 8'd1};
         w       = {8'd1, 8'd1, 8'd1, 8'd1, 8'd1};
         bias_in = 0;
-        drive_pixels_inch1(5);
+        drive_pixels_inch1(DRAIN_N);
         wait_pool_write(success);
         check_val(8'sd0, "TC01b_basic_pipeline");
 
@@ -194,7 +248,7 @@ module tb_cp_block;
         taps_in = 40'h0;
         w       = {8'd0, 8'd0, 8'd0, 8'd0, 8'd1};  // w[0]=1
         bias_in = 32'sd128;
-        drive_pixels_inch1(5);
+        drive_pixels_inch1(DRAIN_N);
         wait_pool_write(success);
         check_val(8'sd1, "TC02a_round_half_up_128");
 
@@ -204,7 +258,7 @@ module tb_cp_block;
         taps_in = 40'h0;
         w       = 40'h0;
         bias_in = 32'sd127;
-        drive_pixels_inch1(5);
+        drive_pixels_inch1(DRAIN_N);
         wait_pool_write(success);
         check_val(8'sd0, "TC02b_round_half_up_127");
 
@@ -214,7 +268,7 @@ module tb_cp_block;
         taps_in = 40'h0;
         w       = 40'h0;
         bias_in = 32'sd200;
-        drive_pixels_inch1(5);
+        drive_pixels_inch1(DRAIN_N);
         wait_pool_write(success);
         check_val(8'sd127, "TC03_clamp_upper");
 
@@ -224,7 +278,7 @@ module tb_cp_block;
         taps_in = 40'h0;
         w       = 40'h0;
         bias_in = -32'sd200;
-        drive_pixels_inch1(5);
+        drive_pixels_inch1(DRAIN_N);
         wait_pool_write(success);
         check_val(-8'sd127, "TC04_clamp_lower");
 
@@ -234,7 +288,7 @@ module tb_cp_block;
         taps_in = 40'h0;
         w       = 40'h0;
         bias_in = 32'sd127;
-        drive_pixels_inch1(5);
+        drive_pixels_inch1(DRAIN_N);
         wait_pool_write(success);
         check_val(8'sd127, "TC05_clamp_exact_upper");
 
@@ -244,7 +298,7 @@ module tb_cp_block;
         taps_in = 40'h0;
         w       = 40'h0;
         bias_in = -32'sd127;
-        drive_pixels_inch1(5);
+        drive_pixels_inch1(DRAIN_N);
         wait_pool_write(success);
         check_val(-8'sd127, "TC06_clamp_exact_lower");
 
@@ -254,7 +308,7 @@ module tb_cp_block;
         taps_in = 40'h0;
         w       = 40'h0;
         bias_in = -32'sd50;
-        drive_pixels_inch1(5);
+        drive_pixels_inch1(DRAIN_N);
         wait_pool_write(success);
         check_val(8'sd0, "TC07_relu_on_negative");
 
@@ -264,7 +318,7 @@ module tb_cp_block;
         taps_in = 40'h0;
         w       = 40'h0;
         bias_in = 32'sd50;
-        drive_pixels_inch1(5);
+        drive_pixels_inch1(DRAIN_N);
         wait_pool_write(success);
         check_val(8'sd50, "TC08_relu_on_positive");
 
@@ -274,7 +328,7 @@ module tb_cp_block;
         taps_in = 40'h0;
         w       = 40'h0;
         bias_in = -32'sd50;
-        drive_pixels_inch1(5);
+        drive_pixels_inch1(DRAIN_N);
         wait_pool_write(success);
         check_val(-8'sd50, "TC09_relu_off_negative");
 
@@ -286,12 +340,15 @@ module tb_cp_block;
         in_ch = 4'd1; nb = 5'd0; relu_en = 0;
         taps_in = 40'h0;
         w       = 40'h0;
-        bias_in = 32'sd0;   drive_pixels_inch1(1);  // pixel #0 in (bias for #0 driven next iter)
-        bias_in = 32'sd100; drive_pixels_inch1(1);  // pixel #1 in, samples bias=100 for #0
-        bias_in = 32'sd50;  drive_pixels_inch1(1);  // pixel #2 in, samples bias=50  for #1
-        bias_in = 32'sd30;  drive_pixels_inch1(1);  // pixel #3 in, samples bias=30  for #2
-        bias_in = 32'sd20;  drive_pixels_inch1(1);  // pixel #4 in, samples bias=20  for #3
-        bias_in = 32'sd10;                          // hold bias=10 for #4 drain
+        compute_en_in = 1; a_in = 0;
+        bias_in = 32'sd0;   @(posedge clk); #1;  // pixel #0 out_valid
+        bias_in = 32'sd100; @(posedge clk); #1;  // pixel #1; samples bias=100 for #0
+        bias_in = 32'sd50;  @(posedge clk); #1;  // pixel #2; bias=50  for #1
+        bias_in = 32'sd30;  @(posedge clk); #1;  // pixel #3; bias=30  for #2
+        bias_in = 32'sd20;  @(posedge clk); #1;  // pixel #4; bias=20  for #3
+        bias_in = 32'sd10;                        // hold bias=10 for #4
+        drain_pipeline(14);                       // flush; no new out_valid (a_in=1)
+        compute_en_in = 0;
         wait_pool_write(success);
         check_val(8'sd100, "TC10_pool_max_at_first");
 
@@ -300,12 +357,15 @@ module tb_cp_block;
         in_ch = 4'd1; nb = 5'd0; relu_en = 0;
         taps_in = 40'h0;
         w       = 40'h0;
-        bias_in = 32'sd0;   drive_pixels_inch1(1);  // pixel #0 in
-        bias_in = 32'sd10;  drive_pixels_inch1(1);  // bias=10  for #0
-        bias_in = 32'sd20;  drive_pixels_inch1(1);  // bias=20  for #1
-        bias_in = 32'sd30;  drive_pixels_inch1(1);  // bias=30  for #2
-        bias_in = 32'sd50;  drive_pixels_inch1(1);  // bias=50  for #3
-        bias_in = 32'sd100;                         // hold bias=100 for #4 drain
+        compute_en_in = 1; a_in = 0;
+        bias_in = 32'sd0;   @(posedge clk); #1;  // pixel #0 out_valid
+        bias_in = 32'sd10;  @(posedge clk); #1;  // bias=10  for #0
+        bias_in = 32'sd20;  @(posedge clk); #1;  // bias=20  for #1
+        bias_in = 32'sd30;  @(posedge clk); #1;  // bias=30  for #2
+        bias_in = 32'sd50;  @(posedge clk); #1;  // bias=50  for #3
+        bias_in = 32'sd100;                       // hold bias=100 for #4
+        drain_pipeline(14);
+        compute_en_in = 0;
         wait_pool_write(success);
         check_val(8'sd100, "TC11_pool_max_at_last");
 
@@ -315,20 +375,14 @@ module tb_cp_block;
         taps_in = 40'h0;
         w       = 40'h0;
         bias_in = 32'sd42;
-        drive_pixels_inch1(5);
-        // Count pool_write pulses in next 20 cycles: expect exactly 1
+        drive_pixels_inch1(DRAIN_N);   // exactly 5 out_valids = one window + drain
+        // pw_count latches every pool_write since reset: expect exactly 1
         begin : tc12_check
-            integer cnt12, t12;
-            cnt12 = 0;
-            for (t12 = 0; t12 < 20; t12 = t12 + 1) begin
-                @(posedge clk); #1;
-                if (pool_write) cnt12 = cnt12 + 1;
-            end
-            if (cnt12 === 1) begin
-                $display("PASS [TC12_pool_write_once] count=%0d  (%0t ns)", cnt12, $time - tc_t0);
+            if (pw_count === 1) begin
+                $display("PASS [TC12_pool_write_once] count=%0d  (%0t ns)", pw_count, $time - tc_t0);
                 pass_cnt = pass_cnt + 1;
             end else begin
-                $display("FAIL [TC12_pool_write_once] expected=1 got=%0d  (%0t ns)", cnt12, $time - tc_t0);
+                $display("FAIL [TC12_pool_write_once] expected=1 got=%0d  (%0t ns)", pw_count, $time - tc_t0);
                 fail_cnt = fail_cnt + 1;
             end
         end

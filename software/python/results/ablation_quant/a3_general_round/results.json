@@ -1,0 +1,24 @@
+{
+  "variant": "A3_general_round",
+  "rescale_mode": "round",
+  "fq_acc": 0.9436619718309859,
+  "int8_acc": 0.9464788732394366,
+  "acc_drop_pct": -0.28169014084507005,
+  "dsp_extra_rescale": 4,
+  "f1_macro": 0.9397699482069299,
+  "per_class_f1": {
+    "AFIB": 0.8928571428571428,
+    "GSVT": 0.9227557411273487,
+    "SB": 0.9869451697127937,
+    "SR": 0.9565217391304347
+  },
+  "w_scale": {
+    "conv1": 0.008668921887874603,
+    "conv2": 0.008204830810427666,
+    "conv3": 0.00802783202379942,
+    "conv4": 0.00430890591815114,
+    "fc": 0.003488206537440419
+  },
+  "input_scale": 0.17013064707358053,
+  "note": "General-scale rescale needs multiply per layer; hardware cost = 1 DSP18 per conv rescale stage"
+}

@@ -28,7 +28,7 @@ Stages written:
 Usage:
     python generate_golden.py \\
         --checkpoint ./results/qat_int8/model_qat_int8.pth \\
-        --data_dir   /home/duc/Thesis/data/Chapman \\
+        --data_dir   D:/Thesis101/data/Chapman \\
         --output_dir ./results/golden \\
         --sample_idx 0
 """
@@ -209,7 +209,7 @@ def run(args):
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument('--checkpoint',  required=True)
-    p.add_argument('--data_dir',    default='/home/duc/Thesis/data/Chapman')
+    p.add_argument('--data_dir',    default='../../data/Chapman')
     p.add_argument('--output_dir',  default='./results/golden')
     p.add_argument('--sample_idx',  type=int, default=0)
     return p.parse_args()

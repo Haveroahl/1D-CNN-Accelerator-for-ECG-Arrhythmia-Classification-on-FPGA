@@ -226,7 +226,7 @@ if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser()
     p.add_argument('--data_dir', type=str,
-                   default='/home/duc/Thesis/data/Chapman')
+                   default='../../data/Chapman')
     args = p.parse_args()
 
     ds = ChapmanECGDataset(args.data_dir, split='train')

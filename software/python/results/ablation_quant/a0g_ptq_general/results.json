@@ -1,0 +1,16 @@
+{
+  "variant": "A0g_ptq_general_round",
+  "int8_acc": 0.9446009389671362,
+  "fq_acc": 0.9446009389671362,
+  "acc_drop_pct": 0.0,
+  "dsp_extra_rescale": 4,
+  "f1_macro": 0.9380361197334249,
+  "per_class_f1": {
+    "AFIB": 0.8932461873638344,
+    "GSVT": 0.9191489361702128,
+    "SB": 0.9856209150326798,
+    "SR": 0.9541284403669724
+  },
+  "rescale_mode": "round",
+  "note": "General-scale PTQ (no fake-quant training; activation scales calibrated from float forward). Completes the QAT-vs-PTQ x scale-type 2x2 matrix with A0/A2/A3."
+}

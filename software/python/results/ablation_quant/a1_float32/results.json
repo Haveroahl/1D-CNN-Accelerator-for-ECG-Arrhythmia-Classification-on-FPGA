@@ -1,0 +1,15 @@
+{
+  "variant": "A1_float32",
+  "int8_acc": 0.9464788732394366,
+  "fq_acc": 0.9464788732394366,
+  "acc_drop_pct": 0.0,
+  "dsp_extra_rescale": "N/A",
+  "f1_macro": 0.9401890052344103,
+  "per_class_f1": {
+    "AFIB": 0.8977777777777779,
+    "GSVT": 0.9246861924686192,
+    "SB": 0.984375,
+    "SR": 0.9539170506912441
+  },
+  "note": "Float32 upper bound \u2014 no quantization"
+}

@@ -15,7 +15,7 @@ Three types of analysis for sequential CNN:
     Model có fragile với input perturbation không?
 
 Run:
-    cd /home/duc/Thesis/software/python
+    cd D:/Thesis101/software/python
     python interpretability.py
 """
 
@@ -33,7 +33,8 @@ from utils.dataset  import get_dataloaders
 from utils.evaluate import compute_metrics, evaluate_model
 from model.model import ECG_1DCNN, build_model
 
-DATA_DIR   = "/home/duc/Thesis/data/Chapman"
+DATA_DIR   = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "../../data/Chapman")
 MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "../results/best_model.pth")
 OUT_DIR    = os.path.join(os.path.dirname(os.path.abspath(__file__)),

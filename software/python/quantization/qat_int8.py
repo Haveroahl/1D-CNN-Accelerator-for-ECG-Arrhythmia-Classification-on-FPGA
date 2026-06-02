@@ -24,14 +24,14 @@ Usage:
     python quantization/qat_int8.py \\
         --checkpoint ./results/best_model_pruned.pth \\
         --output_dir ./results/qat_int8 \\
-        --data_dir   /home/duc/Thesis/data/Chapman \\
+        --data_dir   D:/Thesis101/data/Chapman \\
         --epochs 30 --lr 1e-4
 
     # Evaluate only (model already trained)
     python quantization/qat_int8.py \\
         --checkpoint ./results/best_model_pruned.pth \\
         --output_dir ./results/qat_int8 \\
-        --data_dir   /home/duc/Thesis/data/Chapman \\
+        --data_dir   D:/Thesis101/data/Chapman \\
         --eval_only
 """
 
@@ -575,7 +575,7 @@ def run(args):
             if (epoch + 1) % 5 == 0 or epoch == 0:
                 print(f"  Epoch {epoch+1:3d}/{args.epochs}  "
                       f"train_acc={train_acc:.4f}  val_acc={val_acc:.4f}"
-                      + ("  ← best" if val_acc >= best_val_acc else ""))
+                      + ("  <- best" if val_acc >= best_val_acc else ""))
 
         print(f"\n  Best val_acc: {best_val_acc:.4f}")
         with open(os.path.join(args.output_dir, 'qat_history.json'), 'w') as f:
@@ -683,7 +683,7 @@ def main():
     p.add_argument('--checkpoint', type=str, required=True,
                    help='Float32 checkpoint to start QAT from')
     p.add_argument('--output_dir', type=str, default='./results/qat_int8')
-    p.add_argument('--data_dir',   type=str, default='/home/duc/Thesis/data/Chapman')
+    p.add_argument('--data_dir',   type=str, default='../../data/Chapman')
     p.add_argument('--epochs',     type=int, default=50)
     p.add_argument('--lr',         type=float, default=1e-4)
     p.add_argument('--batch_size', type=int, default=128)

@@ -1,0 +1,30 @@
+{
+  "variant": "A4_p2_floor",
+  "rescale": "power-of-2 shift, floor truncation (no round-half-up)",
+  "fq_acc": 0.9436619718309859,
+  "int8_acc": 0.939906103286385,
+  "acc_drop_pct": 0.375586854460086,
+  "dsp_extra_rescale": 0,
+  "f1_macro": 0.932784644847611,
+  "per_class_f1": {
+    "AFIB": 0.8879310344827587,
+    "GSVT": 0.9083155650319829,
+    "SB": 0.9855832241153342,
+    "SR": 0.9493087557603687
+  },
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7
+  },
+  "w_shift": {
+    "conv1": 6,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7,
+    "fc": 8
+  },
+  "input_shift_bits": 2,
+  "note": "Power-of-2 scale same as A2, but floor truncation instead of round-half-up. Measures rounding correction contribution to accuracy."
+}

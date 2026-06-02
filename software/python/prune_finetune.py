@@ -26,7 +26,7 @@ Fine-tune schedule:
 Usage:
   python prune_finetune.py \\
       --checkpoint ./results/best_model.pth \\
-      --data_dir   /home/duc/Thesis/data/Chapman \\
+      --data_dir   D:/Thesis101/data/Chapman \\
       --output_dir ./results
 """
 
@@ -491,7 +491,7 @@ def parse_args():
     p.add_argument('--checkpoint',  type=str,
                    default='./results/best_model.pth')
     p.add_argument('--data_dir',    type=str,
-                   default='/home/duc/Thesis/data/Chapman')
+                   default='../../data/Chapman')
     p.add_argument('--output_dir',  type=str,   default='./results')
     p.add_argument('--batch_size',  type=int,   default=128)
     p.add_argument('--num_workers', type=int,   default=2)

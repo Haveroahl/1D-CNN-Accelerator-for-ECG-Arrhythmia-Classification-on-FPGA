@@ -1,0 +1,38 @@
+{
+  "variant": "A2_p2_round",
+  "int8_acc": 0.9437,
+  "fq_acc": 0.9437,
+  "acc_drop_pct": 0.0,
+  "dsp_extra_rescale": 0,
+  "f1_macro": 0.9364,
+  "per_class_f1": {
+    "AFIB": 0.8889,
+    "GSVT": 0.9182,
+    "SB": 0.9881,
+    "SR": 0.9505
+  },
+  "macro_auc": 0.9666,
+  "per_class_auc": {
+    "AFIB": 0.951,
+    "GSVT": 0.954,
+    "SB": 0.992,
+    "SR": 0.969
+  },
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7,
+    "fc": 0
+  },
+  "w_shift": {
+    "conv1": 6,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7,
+    "fc": 8
+  },
+  "input_shift_bits": 2,
+  "note": "Power-of-2 QAT round-half-up (ours). Bit-exact INT8 (int8_forward, == RTL path) measured from model_qat_int8.pth. Did NOT re-run qat_int8.py.",
+  "source": "evaluate_int8/chapman_cm_roc.py (bit-exact eval of existing checkpoint)"
+}

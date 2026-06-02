@@ -1,7 +1,7 @@
 # Q3 Paper Proposal — Reconfigurable INT8 CNN Accelerator for Multi-Dataset ECG Arrhythmia Classification on Intel Cyclone V FPGA
 
 **Tác giả**: Lê Đức (ducle160499@gmail.com)
-**Ngày**: 2026-05-24
+**Ngày**: 2026-05-24 (cập nhật 2026-06-01)
 **Target venue**: Electronics (MDPI) hoặc Sensors (MDPI) — Q3, IF ~2.9–3.4
 
 ---
@@ -11,10 +11,10 @@
 > **"Power-of-Two QAT and Cross-Dataset Transferability of an INT8 1D-CNN ECG Classifier on FPGA: A Bit-Exact Methodology and Empirical Study"**
 
 Tiêu đề phụ ngắn (nếu Letter):
-> *"Bit-Exact Power-of-Two INT8 1D-CNN for ECG on Cyclone V: Quantization Methodology and Chapman↔MIT-BIH Transfer Study"*
+> *"Bit-Exact Power-of-Two INT8 1D-CNN for ECG on Cyclone V: Quantization Methodology and Chapman↔PTB-XL Transfer Study"*
 
 ### Pitch novelty (một câu để cover letter / abstract)
-> "This paper presents (i) a bit-exact power-of-two QAT methodology for 1D-CNN ECG classification with quantitative ablation against general-scale INT8, and (ii) the first empirical cross-dataset transfer study (Chapman ↔ MIT-BIH) on an FPGA-deployed quantized ECG model, enabled by a lightweight runtime weight-reload mechanism on Intel Cyclone V."
+> "This paper presents (i) a bit-exact power-of-two QAT methodology for 1D-CNN ECG classification with quantitative ablation against general-scale INT8, and (ii) the first empirical cross-dataset transfer study (Chapman ↔ PTB-XL) on an FPGA-deployed quantized ECG model, enabled by a lightweight runtime weight-reload mechanism on Intel Cyclone V."
 
 **Lưu ý chiến lược**: Runtime-reconfigurable weight được pitch là **enabling mechanism**, KHÔNG phải đóng góp chính — vì kỹ thuật này phổ biến trong FPGA NN accelerator (DPU, FINN, NVDLA). Đóng góp chính là (a) methodology QAT power-of-2 bit-exact và (c) empirical cross-dataset study.
 
@@ -32,7 +32,7 @@ Tiêu đề phụ ngắn (nếu Letter):
 |---|---|
 | Dùng general-scale INT8 (cần DSP nhân scale), không phân tích cost-accuracy của power-of-2 shift | ⭐ **Power-of-2 QAT methodology + ablation** vs general-scale (DSP, energy, accuracy) |
 | Báo accuracy float vs INT8 nhưng không bit-exact với RTL → "INT8 simulation" và RTL thường lệch | ⭐ **Round-half-up bit-exact pipeline** (21 checkpoint match Python ↔ RTL) |
-| Đánh giá chỉ trên 1 dataset, không trả lời được câu hỏi generalization | ⭐ **Empirical cross-dataset study** Chapman ↔ MIT-BIH trên FPGA thực |
+| Đánh giá chỉ trên 1 dataset, không trả lời được câu hỏi generalization | ⭐ **Empirical cross-dataset study** Chapman ↔ PTB-XL trên FPGA thực |
 | Chỉ báo accuracy + LUT/FF, thiếu Energy/inference (chỉ số quan trọng cho wearable) | **Đo Power qua PowerPlay + Energy/inference µJ** |
 | Hard-code weight bitstream → không thể làm transfer learning study trên hardware | Lightweight Avalon-MM weight reload (enabling mechanism, không phải novelty) |
 
@@ -42,7 +42,7 @@ Tiêu đề phụ ngắn (nếu Letter):
 
 1. **C1 — Power-of-Two QAT methodology với phân tích định lượng**: QAT scheme với `nb` và `w_shift` chọn theo `floor(log2(127/abs_max))`, round-half-up rescale. **Ablation systematic** so với general-scale INT8 trên cùng model/dataset: chỉ ra trade-off DSP-count, energy, accuracy drop.
 2. **C2 — Bit-exact verification framework**: 21 golden checkpoints (input, 4 pool outputs, GAP, FC logits) match bit-exact giữa Python QAT model và RTL simulation — methodology reproducible cho các CNN INT8 khác.
-3. **C3 — Empirical cross-dataset transfer study trên FPGA INT8**: Đánh giá định lượng zero-shot / linear probe / full fine-tune giữa Chapman và MIT-BIH trên cùng IP core thật (không phải software simulation). Trả lời câu hỏi: "INT8 quantized ECG model có generalize giữa datasets không?".
+3. **C3 — Empirical cross-dataset transfer study trên FPGA INT8**: Đánh giá định lượng zero-shot / linear probe / full fine-tune giữa Chapman và PTB-XL trên cùng IP core thật (không phải software simulation). Trả lời câu hỏi: "INT8 quantized ECG model có generalize giữa datasets không?".
 
 **Đóng góp phụ (engineering / enabling):**
 
@@ -56,7 +56,7 @@ Tiêu đề phụ ngắn (nếu Letter):
 **RQ chính (cho contributions C1, C3):**
 - **RQ1 (methodology)**: Power-of-2 QAT (chỉ shift) đánh đổi gì so với general-scale INT8 (cần multiplier) trên cùng CNN 1D ECG? Cụ thể: accuracy drop (%), DSP saved, energy saved.
 - **RQ2 (bit-exact)**: Round-half-up rescale có cần thiết không? So với floor truncation thì accuracy chênh bao nhiêu? Có reproducible 100% giữa Python golden và RTL không?
-- **RQ3 (cross-dataset)**: CNN 1D INT8 train trên Chapman, deploy FPGA, đánh giá MIT-BIH:
+- **RQ3 (cross-dataset)**: CNN 1D INT8 train trên Chapman, deploy FPGA, đánh giá PTB-XL:
   - Zero-shot accuracy?
   - Linear probe (freeze conv, retrain FC) gain bao nhiêu?
   - Full fine-tune gain bao nhiêu?
@@ -152,26 +152,34 @@ On-board (DE10-Standard)
 
 ## 5. Kế hoạch thực nghiệm (Experimental Plan)
 
-### Phase A' — QAT ablation (Tuần 1, ngày 1-2) ⭐ cho C1
-- Implement 3 quantization variants trên cùng pruned model (4-4-8-8):
-  - A2: Power-of-2 QAT round-half-up (đã có) — `software/python/quantization/qat_int8.py`.
-  - A3: General-scale INT8 QAT — viết `qat_int8_general.py`, scale `s = abs_max/127` (float), simulate hardware rescale `round(acc * s_out / (s_in * s_w))`.
-  - A4: Power-of-2 + floor — fork A2, đổi `(acc + 2^(nb-1)) >> nb` thành `acc >> nb`.
-- Train 5-fold patient-independent split.
-- Đo: accuracy, F1-macro, per-class F1, DSP estimate (count multiplier trong rescale chain).
-- **Output**: `results/ablation_quant/{variant}_kfold.json`.
+### Phase A' — quant ablation (Tuần 1, ngày 1-2) ⭐ cho C1 — ✅ DONE (2026-06-02)
+- Ma trận 2 trục (train-method × scale-type) trên pruned model (4-4-8-8), eval bit-exact INT8:
+  - A0: PTQ power-of-2 (calibrate, no train) — `quantization/ptq_int8.py`.
+  - A0': PTQ general-scale — `quantization/ptq_int8_general.py`.
+  - A2: QAT power-of-2 round-half-up (ours) — `quantization/qat_int8.py`.
+  - A3: QAT general-scale — `quantization/qat_int8_general.py`.
+  - A4: QAT power-of-2 floor — `quantization/qat_int8_floor.py`.
+- **Kết quả (single-run, seed=42)**: A1 float 94.65 / A0 94.08 / A0' 94.46 / A2 94.37 / A3 94.65 / A4 93.99 (% acc).
+- **5 test-fold robustness** (`run_kfold_quant.py`): std 0.4–0.9% ≥ mọi khác biệt giữa variant → khác biệt accuracy trong nhiễu; điểm chắc chắn duy nhất là DSP cost (p2=0 vs general=4).
+- **Kết luận C1**: power-of-2 ≈ general-scale về accuracy (Δ < std) nhưng tiết kiệm 4 DSP18 → Pareto-ưu. Round-half-up > floor (+0.38%). QAT KHÔNG bắt buộc (PTQ p2 cũng 94.08%).
+- **Output**: `results/ablation_quant/TABLE4_FINAL.md`, `table4.txt`, `kfold/kfold_summary.json`; Chapman CM+ROC: `results/figures/` (macro-AUC 0.967).
 
-### Phase A — Cross-dataset eval (Tuần 1, ngày 3-4) ⭐ cho C3
-- Download MIT-BIH (PhysioNet wfdb), preprocess: resample 360→500Hz, lead MLII, segment 5s window (2500 samples).
-- Map class AAMI ↔ Chapman 4-class (N→SR, S→GSVT, V→GSVT, F/Q→drop) — document rationale rõ trong paper.
-- Patient-independent split MIT-BIH 70/15/15.
-- 5 modes (đối ứng ablation nhóm C):
-  - C2: Zero-shot (Chapman QAT-INT8 weight → predict MIT-BIH).
-  - C3: Linear probe (freeze conv, retrain FC, INT8 QAT lại FC).
-  - C4: Full fine-tune (unfreeze all, INT8 QAT toàn bộ).
-  - C5: From-scratch MIT-BIH.
-  - C6: Float32 zero-shot + fine-tune để decompose quantization vs distribution shift.
-- **Output**: `results/cross_eval/{mode}_metrics.json` + confusion matrices + per-class F1.
+### Phase A — Cross-dataset eval (Tuần 1, ngày 3-4) ⭐ cho C3 — ✅ DONE (2026-06-01)
+- ~~Download MIT-BIH~~ → **Dùng PTB-XL** (21,799 records, 500Hz, 10s, 19,952 mappable).
+- Preprocess: 500→250Hz downsample, Lead II (ch=1), Z-score, window 2500 samples.
+- Map SCP codes → 4-class: AFIB(AFIB/AFLT), GSVT(STACH/SVTAC/PSVT/SVARR), SB(SBRAD), SR(SR).
+- Patient-independent split PTB-XL 70/15/15.
+- 6 modes hoàn thành (C1–C6) + U0 unpruned ablation:
+  - C1: Chapman in-distribution: **acc=0.9446, F1=0.9379** ✅
+  - C2: Zero-shot QAT-INT8: **acc=0.7714, F1=0.6486** ✅
+  - C3: Linear probe: **acc=0.9249, F1=0.7695** ✅
+  - C4: Full fine-tune: **acc=0.9329, F1=0.7915** ✅
+  - C5: From-scratch PTB-XL: **acc=0.9263, F1=0.7686** ✅  *(note: updated from 0.9279/0.7815)*
+  - C6: Float32 zero-shot: **acc=0.7714, F1=0.6486** (=C2 → quant drop=0%) ✅
+  - U0: Unpruned float32: acc=0.7721, F1=0.6393 (pruning không làm hại transfer) ✅
+- **Key finding**: C2==C6 → 100% drop là distribution shift, quantization không gây thêm loss.
+- **Key finding**: SB/SR confusion là vấn đề lâm sàng (HR threshold 60bpm), không giải được bằng balancing.
+- **Output**: `results/cross_eval/ptbxl_cross_eval.json` + `A_Crosscheck.txt` ✅
 
 ### Phase B — Lightweight weight RAM (Tuần 1, ngày 5-6) — enabling mechanism cho C3
 - Refactor `cp_engine.v`: thay weight FF array bằng `weight_ram` interface.
@@ -193,7 +201,7 @@ On-board (DE10-Standard)
 ### Phase D — On-board validation (Tuần 2, ngày 4-5)
 - Program `.sof` vào DE10-Standard.
 - HPS driver chạy test set Chapman → đếm match với Python (target: 100% match RTL sim, ~94.65% accuracy).
-- Load weight MIT-BIH (Phase A fine-tune) → đo accuracy on-board → match Phase A.
+- Load weight PTB-XL (Phase A fine-tune) → đo accuracy on-board → match Phase A.
 - Đo latency thực bằng performance counter (ARM A9 cycle counter).
 
 ### Phase E — Benchmark & SoTA comparison (Tuần 2, ngày 6-7)
@@ -213,21 +221,22 @@ On-board (DE10-Standard)
 |---|---|---|
 | Accuracy (test set Chapman) | % | ✅ 94.65% |
 | F1-macro, per-class F1 | — | ✅ 0.94 |
-| Confusion matrix | — | 🔲 Cần re-generate |
-| ROC / AUC | — | 🔲 Cần thêm |
-| K-fold (5-fold) mean ± std | — | 🔲 |
-| Patient-independent split | — | 🔲 Verify |
+| Confusion matrix (Chapman) | — | ✅ `results/figures/chapman_confusion_matrix.png` |
+| ROC / AUC | — | ✅ macro-AUC 0.967 — `results/figures/chapman_roc.png` |
+| K-fold (5-fold) mean ± std | — | ✅ 5 test-fold robustness — `kfold/kfold_summary.json` |
+| Patient-independent split | — | ✅ 70/15/15 (cả Chapman & PTB-XL) |
 | Inference latency | µs / cycles | ✅ 52.16 µs / 5216 cy |
 | Throughput | inf/s | ✅ ~19,200 |
-| Fmax | MHz | 🔲 Sau synthesis |
-| Resource: ALM/M10K/DSP18/MLAB/FF | đếm + % | 🔲 Sau synthesis |
-| Dynamic power | mW | 🔲 PowerPlay |
-| Static power | mW | 🔲 PowerPlay |
-| Energy/inference | µJ | 🔲 Tính sau power |
-| Cross-dataset accuracy (5 modes) | % | 🔲 Phase A |
-| Quantization variants (A2-A4) accuracy | % | 🔲 Phase A' |
-| DSP count per variant | # | 🔲 Phase A' + synth |
-| Decomposition: quant drop vs distribution drop | % | 🔲 Phase A C6 |
+| Fmax | MHz | 🔲 Sau synthesis (Phase C) |
+| Resource: ALM/M10K/DSP18/MLAB/FF | đếm + % | 🔲 Sau synthesis (Phase C) |
+| Dynamic power | mW | 🔲 PowerPlay (Phase C) |
+| Static power | mW | 🔲 PowerPlay (Phase C) |
+| Energy/inference | µJ | 🔲 Tính sau power (Phase C) |
+| Cross-dataset accuracy (6 modes C1–C6) | % | ✅ PTB-XL results — `ptbxl_cross_eval.json` |
+| Confusion matrices cross-dataset | — | ✅ C2/C3/C4/C5 — `A_Crosscheck.txt` |
+| Quantization variants (A0/A0'/A2-A4) accuracy | % | ✅ Table 4 — `ablation_quant/TABLE4_FINAL.md` |
+| DSP count per variant | # | ✅ power-of-2=0, general-scale=4 DSP18 (rescale) |
+| Decomposition: quant drop vs distribution drop | % | ✅ C2==C6 → quant drop=0%, all shift = distribution |
 
 ### 6.2. Bảng so sánh SoTA (template, cần điền sau khi search literature)
 | Ref | Year | Platform | Model | Quant | Dataset | Acc | Latency | Power | Energy/inf |
@@ -238,7 +247,7 @@ On-board (DE10-Standard)
 | [4] | 2023 | Edge GPU | ResNet | FP16 | MIT-BIH | ... | ... | ... | ... |
 | [5] | 2024 | Zynq UltraScale | 1D-CNN | INT8 | PTB-XL | ... | ... | ... | ... |
 | [6] | 2025 | ASIC | CNN | INT8 | MIT-BIH | ... | ... | ... | ... |
-| **Ours** | 2026 | **Cyclone V** | **1D-CNN** | **INT8 P2-QAT** | **Chapman+MIT** | **94.65%** | **52 µs** | **TBD** | **TBD** |
+| **Ours** | 2026 | **Cyclone V** | **1D-CNN** | **INT8 P2-QAT** | **Chapman+PTB-XL** | **94.65%** | **52 µs** | **TBD** | **TBD** |
 
 → **Action**: 1 ngày search Google Scholar + IEEE Xplore, từ khoá: `"ECG" "FPGA" "CNN"`, `"arrhythmia" "quantization" "FPGA"`, filter 2021-2026.
 
@@ -346,19 +355,19 @@ References (40-60 entries)
 
 ## 9. Timeline chi tiết (3 tuần)
 
-| Tuần | Ngày | Việc | Output |
-|---|---|---|---|
-| **W1** | 1-2 | Phase A' — QAT ablation A2/A3/A4 + k-fold | ablation_quant/*.json |
-| | 3-4 | Phase A — MIT-BIH 5 modes | cross_eval/*.json + confusion |
-| | 5-6 | Phase B — weight RAM RTL + Avalon | RTL pass 21/21 |
-| | 7 | Buffer / catch-up | — |
-| **W2** | 1-3 | Phase C — synthesis + PowerPlay | Fmax, resource, power |
-| | 4-5 | Phase D — on-board DE10 | accuracy match |
-| | 6-7 | Phase E — SoTA bảng + Pareto | Table 8, Fig. 8 |
-| **W3** | 1-3 | Draft paper sections 1-4 | First half |
-| | 4-5 | Draft sections 5-8 + figures | Full draft |
-| | 6 | Internal review + revise | v2 |
-| | 7 | Submit | Submission |
+| Tuần | Ngày | Việc | Output | Status |
+|---|---|---|---|---|
+| **W1** | 1-2 | Phase A' — quant ablation A0/A0'/A2/A3/A4 + 5-fold + Chapman CM/ROC | ablation_quant/TABLE4_FINAL.md, figures/ | ✅ Done |
+| | 3-4 | Phase A — PTB-XL 6 modes (C1–C6) | cross_eval/ptbxl_cross_eval.json | ✅ Done |
+| | 5-6 | Phase B — weight RAM RTL + Avalon | RTL pass 21/21 | 🔲 |
+| | 7 | Buffer / catch-up | — | — |
+| **W2** | 1-3 | Phase C — synthesis + PowerPlay | Fmax, resource, power | 🔲 |
+| | 4-5 | Phase D — on-board DE10 | accuracy match | 🔲 |
+| | 6-7 | Phase E — SoTA bảng + Pareto | Table 9, Fig. 8 | 🔲 |
+| **W3** | 1-3 | Draft paper sections 1-4 | First half | 🔲 |
+| | 4-5 | Draft sections 5-8 + figures | Full draft | 🔲 |
+| | 6 | Internal review + revise | v2 | 🔲 |
+| | 7 | Submit | Submission | 🔲 |
 
 ---
 
@@ -368,10 +377,10 @@ References (40-60 entries)
 |---|---|---|---|
 | Phase B (weight RAM) phá vỡ bit-exact 21/21 | Medium | High | Refactor incremental, test sau mỗi sub-step; giữ V1 làm fallback |
 | Fmax sau Phase B < 100 MHz | Low | Medium | M10K read 1-cy match ROM hiện tại; SDC 100MHz có ~3ns slack |
-| MIT-BIH zero-shot accuracy quá thấp | Medium | Low | Story vẫn ổn — chính là motivation cho reconfig + fine-tune |
+| PTB-XL zero-shot accuracy thấp (77%) | — | ✅ Resolved | Story hoạt động: C3 linear probe lên 92.5%, decomposition C2==C6 chứng minh QAT không gây thêm drop. SB/SR confusion documented là clinical boundary problem. |
 | PowerPlay không có activity file đủ realistic | Medium | Medium | Dùng `.vcd` từ full-inference sim; nếu thiếu, dùng default toggle 12.5% |
 | Reviewer hỏi multi-lead / streaming | High | Low | Section 7.3 thừa nhận limitation; future work |
-| Reviewer đòi thêm dataset (PTB-XL, CPSC) | Medium | Medium | Mention trong future work; PTB-XL cần Phase C (topology programmable) — out-of-scope |
+| Reviewer đòi thêm dataset (MIT-BIH, CPSC) | Medium | Medium | PTB-XL đã có (done). MIT-BIH có thể thêm future work; CPSC out-of-scope Q3. |
 | Tạp chí reject vì topology nhỏ | Low | High | Argue: target wearable, params tối thiểu là feature; có ablation pruned vs dense |
 
 ---
@@ -392,26 +401,56 @@ References (40-60 entries)
 
 ## 12. Action checklist tóm tắt
 
-### Bắt đầu ngay (W1 D1)
-- [ ] Viết `software/python/quantization/qat_int8_general.py` (general-scale variant, A3).
-- [ ] Fork A2 → A4 (floor version) bằng flag `--rescale-mode floor`.
-- [ ] Setup 5-fold patient-independent split runner cho Chapman.
-- [ ] Download MIT-BIH (wfdb) + preprocess script.
-- [ ] Tạo nhánh git `feature/weight-ram` cho Phase B.
+### ✅ Đã hoàn thành
+- [x] QAT-INT8 power-of-2 round-half-up — `model_qat_int8.pth` (94.65%, F1=0.9404)
+- [x] Export `flat_weights.hex` (580 INT8 entries)
+- [x] RTL 8 modules, testbench tb_top.v — 21/21 bit-exact PASS
+- [x] Latency đo: 5216 cy / 52.16 µs @ 100 MHz
+- [x] PTB-XL preprocessing pipeline — `ptbxl_dataset.npz` (19,952 records)
+- [x] Phase A cross-dataset 6 modes (C1–C6) + U0 unpruned ablation — kết quả đầy đủ
+- [x] Class balancing experiments — documented, kết luận unweighted wins
+- [x] Decomposition quant vs distribution: C2==C6 → quant drop = 0%
 
-### Trước khi viết paper (deliverables tối thiểu cho contributions)
-- **Cho C1**: Table 4 ablation A1-A4 đầy đủ với 5-fold mean±std.
-- **Cho C2**: 21/21 bit-exact PASS cho cả A2 và sau khi load weight via Avalon (V2).
-- **Cho C3**: Table 6 với 5 modes + confusion matrix + decomposition quant/distribution.
-- **Cho C4**: Fmax, power, energy thực đo từ Quartus + PowerPlay.
-- **Cho C5**: V1 vs V2 resource & Fmax overhead.
-- **Common**: Bảng SoTA 6-8 papers, k-fold, confusion matrix, ROC/AUC.
+### ✅ Phase A' — quant ablation (DONE 2026-06-02)
+- [x] `quantization/qat_int8_general.py` (A3 general-scale) + A0' PTQ general (`ptq_int8_general.py`).
+- [x] A4 floor (`qat_int8_floor.py`) + A0 PTQ power-of-2 (`ptq_int8.py`).
+- [x] 5 test-fold robustness runner (`run_kfold_quant.py`) — std 0.4–0.9%.
+- [x] Table 4 + Chapman CM/ROC → `results/ablation_quant/TABLE4_FINAL.md`, `results/figures/`.
+- [x] Kết luận C1: power-of-2 ≈ general (Δ<std) nhưng −4 DSP18 → Pareto-ưu; QAT không bắt buộc.
 
-### Trước khi submit
-- [ ] GitHub repo public + Zenodo DOI.
+### 🔲 Phase B — Weight RAM (enabling C3 on-hardware)
+- [ ] Tạo nhánh git `feature/weight-ram`.
+- [ ] Refactor `cp_engine.v`: weight FF → `weight_ram.v` (dual-port M10K).
+- [ ] Mở rộng `avalon_slave.v`: 5-bit → 12-bit address.
+- [ ] Regression sim: 21/21 bit-exact PASS với weight load via Avalon.
+
+### 🔲 Phase C — Quartus synthesis + PowerPlay
+- [ ] Quartus Compile (5CSXFC6D6F31C6), SDC 100 MHz.
+- [ ] TimeQuest: report Fmax, WNS.
+- [ ] PowerPlay với `.vcd` từ tb_top simulation → dynamic + static power.
+- [ ] Energy/inference = Power × 52.16 µs.
+- [ ] Resource report V1 vs V2.
+
+### 🔲 Phase D — On-board DE10-Standard
+- [ ] Program `.sof`, viết `ecg_classify.c` HPS driver.
+- [ ] Verify accuracy Chapman ~94.65% on-board.
+- [ ] Load PTB-XL finetuned weight → match Phase A C4 accuracy.
+
+### 🔲 Phase E/F — Writing
+- [ ] Bảng SoTA ≥ 6 papers ECG-FPGA + Pareto chart (search IEEE Xplore).
+- [ ] Generate Chapman confusion matrix + ROC/AUC từ QAT checkpoint.
+- [ ] Draft 8-12 trang Electronics MDPI template.
+- [ ] GitHub public + Zenodo DOI.
 - [ ] Cover letter highlight novelty (C1-C5).
-- [ ] Check journal scope & special issue match.
-- [ ] Proofread (Grammarly / native speaker).
+- [ ] Proofread + submit.
+
+### Deliverables tối thiểu trước khi viết paper
+- **Cho C1**: Table 4 ablation A1–A4 với 5-fold mean±std → Phase A'.
+- **Cho C2**: 21/21 bit-exact PASS sau load weight via Avalon (V2) → Phase B.
+- **Cho C3**: Table 6 với 6 modes + CM + decomposition → ✅ done (software), còn on-hardware Phase D.
+- **Cho C4**: Fmax, power, energy thực từ Quartus + PowerPlay → Phase C.
+- **Cho C5**: V1 vs V2 resource & Fmax overhead → Phase C.
+- **Common**: SoTA 6-8 papers, 5-fold Chapman, Chapman CM + ROC → Phase E.
 
 ---
 
@@ -424,12 +463,12 @@ Sau khi điều chỉnh theo Hướng 3 (a)+(c), novelty của paper tập trung
 
 Runtime weight reload (Phase B) được pitch lại là **enabling mechanism**, minh bạch trong Section 4.6 và 6.4. Reviewer sẽ không thể critique "this is standard DPU technique" vì paper không claim nó là contribution chính.
 
-Project hiện đã có nền tảng kỹ thuật vững (RTL bit-exact, QAT power-of-2, 94.65% accuracy). Khoảng cách tới Q3 là:
-1. **Ablation quant variants** (A3 general-scale, A4 floor) — Phase A'.
-2. **Cross-dataset systematic** (5 modes + decomposition) — Phase A.
+Project hiện đã có nền tảng kỹ thuật vững (RTL bit-exact, QAT power-of-2, 94.65% accuracy) **và kết quả cross-dataset đầy đủ (Phase A done)**. Khoảng cách tới Q3 còn lại:
+1. **Ablation quant variants** (A3 general-scale, A4 floor) — Phase A'. ← Tiếp theo ngay
+2. ~~Cross-dataset systematic~~ — ✅ Done (PTB-XL, 6 modes, C2==C6 decomposition).
 3. **Số đo thật** (power, energy, Fmax, resource sau synthesis) — Phase C.
 4. **Lightweight weight reload** để enable C3 trên hardware — Phase B.
 5. **Bảng SoTA + Pareto** — Phase E.
 6. **Viết bài + reproducibility artifact** — Phase F.
 
-Tổng effort ước tính: **3 tuần làm việc tập trung**, deliverable cuối là 1 paper 8-12 trang nộp Electronics MDPI hoặc Sensors MDPI.
+Tổng effort ước tính còn lại: **~2 tuần** (Phase A' + B + C đã tiết kiệm 3-4 ngày vì Phase A done), deliverable cuối là 1 paper 8-12 trang nộp Electronics MDPI hoặc Sensors MDPI.

@@ -1,0 +1,29 @@
+{
+  "variant": "A0_ptq_p2",
+  "int8_acc": 0.9408450704225352,
+  "fq_acc": 0.9408450704225352,
+  "acc_drop_pct": 0.0,
+  "dsp_extra_rescale": 0,
+  "f1_macro": 0.9337729392277258,
+  "per_class_f1": {
+    "AFIB": 0.8864628820960698,
+    "GSVT": 0.9090909090909092,
+    "SB": 0.9856209150326798,
+    "SR": 0.9539170506912441
+  },
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7
+  },
+  "w_shift": {
+    "conv1": 6,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7,
+    "fc": 8
+  },
+  "input_shift_bits": 2,
+  "note": "Power-of-2 PTQ (no fake-quant training) on float pruned model. Same INT8 scheme + bit-exact path as A2 \u2014 isolates the effect of QAT training vs post-training calibration."
+}

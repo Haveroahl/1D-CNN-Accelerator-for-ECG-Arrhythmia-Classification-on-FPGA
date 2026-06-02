@@ -13,7 +13,7 @@ After training three accuracy figures are reported:
   2. Q8.8 model  — simulates exact FPGA weight quantization (×256 scale)
 
 Usage:
-  python train.py --data_dir /home/duc/Thesis/data/Chapman
+  python train.py --data_dir D:/Thesis101/data/Chapman
                   --output_dir ./results
                   [--model base|v2|v3]
                   [--epochs 100] [--batch_size 128] [--lr 1e-3]
@@ -274,7 +274,7 @@ def parse_args():
         description='Train 1-D CNN (no bias, Q8.8) on Chapman ECG'
     )
     p.add_argument('--data_dir',    type=str,
-                   default='/home/duc/Thesis/data/Chapman',
+                   default='../../data/Chapman',
                    help='Path to Chapman ECG database directory')
     p.add_argument('--output_dir',  type=str, default='./results',
                    help='Directory for checkpoints and logs')

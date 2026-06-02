@@ -57,7 +57,7 @@ Input (2500 INT8)
 
 ---
 
-## Quantization — QAT-INT8 (phương pháp duy nhất cho hardware)
+## Quantization — QAT-INT8 power-of-2 (phương pháp chính cho hardware)
 
 **Power-of-2 scale:** `shift_bits = floor(log2(127 / abs_max))`
 
@@ -89,22 +89,22 @@ FC weight layout: [out_ch-major, 8 weights/row] (4 rows × 8 cols) — cập nh�
 
 ## Software Pipeline
 
-### Virtual env
-```bash
-cd /home/duc/Thesis/software/python
-# Python: python3 (system) hoặc .venv/bin/python nếu venv tồn tại
+### Virtual env (Windows, chạy trong d:\Thesis101)
+```powershell
+cd d:\Thesis101\software\python
+.\.venv\Scripts\Activate.ps1   # venv tại d:\Thesis101\.venv
 ```
 
 ### Training & Export
-```bash
-python3 train.py --data_dir /home/duc/Thesis/data/Chapman
-python3 prune_finetune.py --checkpoint ./results/best_model.pth \
-    --data_dir /home/duc/Thesis/data/Chapman
-python3 quantization/qat_int8.py --checkpoint ./results/best_model_pruned.pth \
-    --output_dir ./results/qat_int8 --data_dir /home/duc/Thesis/data/Chapman
-python3 export_weights_int8.py \
-    --checkpoint ./results/qat_int8/model_qat_int8.pth \
-    --output_dir ./results/weights_qat_int8
+```powershell
+# --data_dir default = ../../data/Chapman (relative), không cần truyền tay
+python train.py
+python prune_finetune.py --checkpoint .\results\best_model.pth
+python quantization\qat_int8.py --checkpoint .\results\best_model_pruned.pth `
+    --output_dir .\results\qat_int8
+python export_weights_int8.py `
+    --checkpoint .\results\qat_int8\model_qat_int8.pth `
+    --output_dir .\results\weights_qat_int8
 ```
 
 ### Dataset
@@ -156,9 +156,7 @@ python3 export_weights_int8.py \
 - **Wearable angle**: power-of-2 → 0 DSP rescale → low energy → fit wearable monitoring.
 
 ### Block 1 — WSL (Software, ~1 tuần)
-- [ ] Phase A' — chạy `qat_int8_general.py` (A3 general-scale variant) — *script đã viết*
-- [ ] Phase A' — fork A4 (floor truncation): bỏ `+2^(nb-1)` trong rescale
-- [ ] Phase A' — 5-fold patient-independent split runner cho A2/A3/A4
+- [x] Phase A' — ✅ DONE: ablation A0/A0'/A2/A3/A4 + 5-fold + Chapman CM/ROC → `results/ablation_quant/TABLE4_FINAL.md`. Kết luận: power-of-2 ≈ general (Δ<std) nhưng −4 DSP18 → Pareto-ưu.
 - [ ] Phase A — MIT-BIH download (wfdb) + preprocess 360→500Hz lead II
 - [ ] Phase A — 5 mode eval: zero-shot / linear probe / full fine-tune / from-scratch / float32 baseline
 
@@ -182,8 +180,9 @@ python3 export_weights_int8.py \
 
 - **flat_weights.hex**: KHÔNG có comment lines — $readmemh đọc từ byte 0
 - **Không có ReLU Conv1-3**: preserve ECG features âm
-- **QAT là pipeline duy nhất cho hardware** — PTQ cho pruned model broken (~22% acc)
+- **QAT dùng cho checkpoint chính** — nhưng power-of-2 INT8 robust: PTQ (calibrate, no fine-tune) cũng đạt 94.08%, QAT chỉ hơn ~0.3% (94.37%). PTQ là baseline A0 trong Table 4 (KHÔNG sập — claim "~22% broken" cũ đã bị bác bỏ bằng số đo bit-exact)
 - **Rounding**: round-half-up, KHÔNG phải floor
 - **Output channels mới**: 4,4,8,8 (power-of-2) — cần re-train trước khi update hardware
-- **Dataset**: `/home/duc/Thesis/data/Chapman`
-- **Simulation tool**: ModelSim (Windows `D:/Verilog/`) — copy file qua `/mnt/d/`
+- **Dataset**: `d:\Thesis101\data\Chapman` (cross-dataset: `d:\Thesis101\data\ptbxl`)
+- **Simulation tool**: ModelSim/Questa (Windows) — RTL trong `hardware/`, sim trong `hardware/fpga/simulation/questa/`
+- **Toàn bộ dự án chạy trong `d:\Thesis101`** — không tách Windows/WSL.

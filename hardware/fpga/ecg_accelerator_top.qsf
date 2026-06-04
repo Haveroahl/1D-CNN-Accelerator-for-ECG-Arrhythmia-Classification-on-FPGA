@@ -86,6 +86,7 @@ set_global_assignment -name VERILOG_FILE ../RTL/ping_pong_sram.v
 set_global_assignment -name VERILOG_FILE ../RTL/input_sram.v
 set_global_assignment -name VERILOG_FILE ../RTL/gap_fc_argmax.v
 set_global_assignment -name VERILOG_FILE ../RTL/ecg_accelerator_top.v
+set_global_assignment -name VERILOG_FILE ../RTL/ecg_core.v
 set_global_assignment -name VERILOG_FILE ../RTL/cp_engine.v
 set_global_assignment -name VERILOG_FILE ../RTL/cp_block.v
 set_global_assignment -name VERILOG_FILE ../RTL/cnn_controller.v

@@ -36,11 +36,11 @@ module tb_top;
     );
 
     // ── Hierarchical aliases ──────────────────────────────────────────
-    wire [2:0]  layer_state  = u_top.ctrl_layer_state;
-    wire        busy         = u_top.ctrl_busy;
-    wire        ctrl_done    = u_top.ctrl_done;
-    wire [1:0]  result       = u_top.ctrl_result;
-    wire [2:0]  fc_sub_state = u_top.ctrl_fc_sub_state;
+    wire [2:0]  layer_state  = u_top.u_core.ctrl_layer_state;
+    wire        busy         = u_top.u_core.busy;
+    wire        ctrl_done    = u_top.u_core.done;
+    wire [1:0]  result       = u_top.u_core.result;
+    wire [2:0]  fc_sub_state = u_top.u_core.ctrl_fc_sub_state;
 
     // FSM state encoding
     localparam IDLE       = 3'd0;
@@ -70,65 +70,65 @@ module tb_top;
         end else begin
             prev_layer_state  <= layer_state;
             prev_fc_sub_state <= fc_sub_state;
-            prev_gap_step     <= u_top.ctrl_gap_step;
+            prev_gap_step     <= u_top.u_core.ctrl_gap_step;
 
             // First 3 pool writes per conv layer: dump cp_pool_out
-            if (layer_state == CONV1 && u_top.cp_pool_write && probe_cnt_l1 < 3) begin
+            if (layer_state == CONV1 && u_top.u_core.cp_pool_write && probe_cnt_l1 < 3) begin
                 $display("  [PROBE C1 w%0d] ch0..3 = %02x %02x %02x %02x",
                     probe_cnt_l1,
-                    u_top.u_cpe.cp_pool_out[0], u_top.u_cpe.cp_pool_out[1],
-                    u_top.u_cpe.cp_pool_out[2], u_top.u_cpe.cp_pool_out[3]);
+                    u_top.u_core.u_cpe.cp_pool_out[0], u_top.u_core.u_cpe.cp_pool_out[1],
+                    u_top.u_core.u_cpe.cp_pool_out[2], u_top.u_core.u_cpe.cp_pool_out[3]);
                 probe_cnt_l1 <= probe_cnt_l1 + 1;
             end
-            if (layer_state == CONV2 && u_top.cp_pool_write && probe_cnt_l2 < 3) begin
+            if (layer_state == CONV2 && u_top.u_core.cp_pool_write && probe_cnt_l2 < 3) begin
                 $display("  [PROBE C2 w%0d] ch0..3 = %02x %02x %02x %02x",
                     probe_cnt_l2,
-                    u_top.u_cpe.cp_pool_out[0], u_top.u_cpe.cp_pool_out[1],
-                    u_top.u_cpe.cp_pool_out[2], u_top.u_cpe.cp_pool_out[3]);
+                    u_top.u_core.u_cpe.cp_pool_out[0], u_top.u_core.u_cpe.cp_pool_out[1],
+                    u_top.u_core.u_cpe.cp_pool_out[2], u_top.u_core.u_cpe.cp_pool_out[3]);
                 probe_cnt_l2 <= probe_cnt_l2 + 1;
             end
-            if (layer_state == CONV3 && u_top.cp_pool_write && probe_cnt_l3 < 3) begin
+            if (layer_state == CONV3 && u_top.u_core.cp_pool_write && probe_cnt_l3 < 3) begin
                 $display("  [PROBE C3 w%0d] ch0..7 = %02x %02x %02x %02x %02x %02x %02x %02x",
                     probe_cnt_l3,
-                    u_top.u_cpe.cp_pool_out[0], u_top.u_cpe.cp_pool_out[1],
-                    u_top.u_cpe.cp_pool_out[2], u_top.u_cpe.cp_pool_out[3],
-                    u_top.u_cpe.cp_pool_out[4], u_top.u_cpe.cp_pool_out[5],
-                    u_top.u_cpe.cp_pool_out[6], u_top.u_cpe.cp_pool_out[7]);
+                    u_top.u_core.u_cpe.cp_pool_out[0], u_top.u_core.u_cpe.cp_pool_out[1],
+                    u_top.u_core.u_cpe.cp_pool_out[2], u_top.u_core.u_cpe.cp_pool_out[3],
+                    u_top.u_core.u_cpe.cp_pool_out[4], u_top.u_core.u_cpe.cp_pool_out[5],
+                    u_top.u_core.u_cpe.cp_pool_out[6], u_top.u_core.u_cpe.cp_pool_out[7]);
                 probe_cnt_l3 <= probe_cnt_l3 + 1;
             end
-            if (layer_state == CONV4 && u_top.cp_pool_write && probe_cnt_l4 < 4) begin
+            if (layer_state == CONV4 && u_top.u_core.cp_pool_write && probe_cnt_l4 < 4) begin
                 $display("  [PROBE C4 w%0d] ch0..7 = %02x %02x %02x %02x %02x %02x %02x %02x",
                     probe_cnt_l4,
-                    u_top.u_cpe.cp_pool_out[0], u_top.u_cpe.cp_pool_out[1],
-                    u_top.u_cpe.cp_pool_out[2], u_top.u_cpe.cp_pool_out[3],
-                    u_top.u_cpe.cp_pool_out[4], u_top.u_cpe.cp_pool_out[5],
-                    u_top.u_cpe.cp_pool_out[6], u_top.u_cpe.cp_pool_out[7]);
+                    u_top.u_core.u_cpe.cp_pool_out[0], u_top.u_core.u_cpe.cp_pool_out[1],
+                    u_top.u_core.u_cpe.cp_pool_out[2], u_top.u_core.u_cpe.cp_pool_out[3],
+                    u_top.u_core.u_cpe.cp_pool_out[4], u_top.u_core.u_cpe.cp_pool_out[5],
+                    u_top.u_core.u_cpe.cp_pool_out[6], u_top.u_core.u_cpe.cp_pool_out[7]);
                 probe_cnt_l4 <= probe_cnt_l4 + 1;
             end
 
             // GAP per-step: dump ping_dout (input) and gap_acc/gap_reg
             if (layer_state == GAP_FC_S && fc_sub_state == 3'd1 /*GAP_S*/) begin
                 $display("  [PROBE GAP step=%0d rd_addr=%0d] ping_dout=%016x",
-                    u_top.ctrl_gap_step, u_top.u_gfa.gap_rd_addr, u_top.pp_dout);
+                    u_top.u_core.ctrl_gap_step, u_top.u_core.u_gfa.gap_rd_addr, u_top.u_core.pp_dout);
                 $display("           gap_acc[0..7]=%03x %03x %03x %03x %03x %03x %03x %03x",
-                    u_top.u_gfa.gap_acc[0]&10'h3FF, u_top.u_gfa.gap_acc[1]&10'h3FF,
-                    u_top.u_gfa.gap_acc[2]&10'h3FF, u_top.u_gfa.gap_acc[3]&10'h3FF,
-                    u_top.u_gfa.gap_acc[4]&10'h3FF, u_top.u_gfa.gap_acc[5]&10'h3FF,
-                    u_top.u_gfa.gap_acc[6]&10'h3FF, u_top.u_gfa.gap_acc[7]&10'h3FF);
+                    u_top.u_core.u_gfa.gap_acc[0]&10'h3FF, u_top.u_core.u_gfa.gap_acc[1]&10'h3FF,
+                    u_top.u_core.u_gfa.gap_acc[2]&10'h3FF, u_top.u_core.u_gfa.gap_acc[3]&10'h3FF,
+                    u_top.u_core.u_gfa.gap_acc[4]&10'h3FF, u_top.u_core.u_gfa.gap_acc[5]&10'h3FF,
+                    u_top.u_core.u_gfa.gap_acc[6]&10'h3FF, u_top.u_core.u_gfa.gap_acc[7]&10'h3FF);
             end
             if (prev_gap_step == 4'd5 && fc_sub_state == 3'd2 /*FC_SUB*/ && prev_fc_sub_state == 3'd1) begin
                 $display("  [PROBE GAP DONE] gap_reg = %02x %02x %02x %02x %02x %02x %02x %02x",
-                    u_top.u_gfa.gap_reg[0], u_top.u_gfa.gap_reg[1],
-                    u_top.u_gfa.gap_reg[2], u_top.u_gfa.gap_reg[3],
-                    u_top.u_gfa.gap_reg[4], u_top.u_gfa.gap_reg[5],
-                    u_top.u_gfa.gap_reg[6], u_top.u_gfa.gap_reg[7]);
+                    u_top.u_core.u_gfa.gap_reg[0], u_top.u_core.u_gfa.gap_reg[1],
+                    u_top.u_core.u_gfa.gap_reg[2], u_top.u_core.u_gfa.gap_reg[3],
+                    u_top.u_core.u_gfa.gap_reg[4], u_top.u_core.u_gfa.gap_reg[5],
+                    u_top.u_core.u_gfa.gap_reg[6], u_top.u_core.u_gfa.gap_reg[7]);
             end
 
             // FC done (entering ARGMAX): dump fc_acc[0..3]
             if (prev_fc_sub_state == 3'd3 /*FC_FLUSH*/ && fc_sub_state == 3'd4 /*ARGMAX*/) begin
                 $display("  [PROBE FC_ACC] fc_acc = %08x %08x %08x %08x",
-                    u_top.u_gfa.fc_acc[0], u_top.u_gfa.fc_acc[1],
-                    u_top.u_gfa.fc_acc[2], u_top.u_gfa.fc_acc[3]);
+                    u_top.u_core.u_gfa.fc_acc[0], u_top.u_core.u_gfa.fc_acc[1],
+                    u_top.u_core.u_gfa.fc_acc[2], u_top.u_core.u_gfa.fc_acc[3]);
             end
         end
     end
@@ -288,14 +288,14 @@ module tb_top;
         input integer pos;
         begin
             case (ch)
-                0: read_mem_a = u_top.u_pp.mem_a_ch0[pos];
-                1: read_mem_a = u_top.u_pp.mem_a_ch1[pos];
-                2: read_mem_a = u_top.u_pp.mem_a_ch2[pos];
-                3: read_mem_a = u_top.u_pp.mem_a_ch3[pos];
-                4: read_mem_a = u_top.u_pp.mem_a_ch4[pos];
-                5: read_mem_a = u_top.u_pp.mem_a_ch5[pos];
-                6: read_mem_a = u_top.u_pp.mem_a_ch6[pos];
-                7: read_mem_a = u_top.u_pp.mem_a_ch7[pos];
+                0: read_mem_a = u_top.u_core.u_pp.mem_a_ch0[pos];
+                1: read_mem_a = u_top.u_core.u_pp.mem_a_ch1[pos];
+                2: read_mem_a = u_top.u_core.u_pp.mem_a_ch2[pos];
+                3: read_mem_a = u_top.u_core.u_pp.mem_a_ch3[pos];
+                4: read_mem_a = u_top.u_core.u_pp.mem_a_ch4[pos];
+                5: read_mem_a = u_top.u_core.u_pp.mem_a_ch5[pos];
+                6: read_mem_a = u_top.u_core.u_pp.mem_a_ch6[pos];
+                7: read_mem_a = u_top.u_core.u_pp.mem_a_ch7[pos];
                 default: read_mem_a = 8'h00;
             endcase
         end
@@ -306,14 +306,14 @@ module tb_top;
         input integer pos;
         begin
             case (ch)
-                0: read_mem_b = u_top.u_pp.mem_b_ch0[pos];
-                1: read_mem_b = u_top.u_pp.mem_b_ch1[pos];
-                2: read_mem_b = u_top.u_pp.mem_b_ch2[pos];
-                3: read_mem_b = u_top.u_pp.mem_b_ch3[pos];
-                4: read_mem_b = u_top.u_pp.mem_b_ch4[pos];
-                5: read_mem_b = u_top.u_pp.mem_b_ch5[pos];
-                6: read_mem_b = u_top.u_pp.mem_b_ch6[pos];
-                7: read_mem_b = u_top.u_pp.mem_b_ch7[pos];
+                0: read_mem_b = u_top.u_core.u_pp.mem_b_ch0[pos];
+                1: read_mem_b = u_top.u_core.u_pp.mem_b_ch1[pos];
+                2: read_mem_b = u_top.u_core.u_pp.mem_b_ch2[pos];
+                3: read_mem_b = u_top.u_core.u_pp.mem_b_ch3[pos];
+                4: read_mem_b = u_top.u_core.u_pp.mem_b_ch4[pos];
+                5: read_mem_b = u_top.u_core.u_pp.mem_b_ch5[pos];
+                6: read_mem_b = u_top.u_core.u_pp.mem_b_ch6[pos];
+                7: read_mem_b = u_top.u_core.u_pp.mem_b_ch7[pos];
                 default: read_mem_b = 8'h00;
             endcase
         end
@@ -463,7 +463,7 @@ module tb_top;
         begin
             mismatches = 0; first_bad = -1; first_rtl = 0; first_gold = 0;
             for (i = 0; i < 2500; i = i + 1) begin
-                rtl_v  = $signed({u_top.u_isram.mem[i][7], u_top.u_isram.mem[i]});
+                rtl_v  = $signed({u_top.u_core.u_isram.mem[i][7], u_top.u_core.u_isram.mem[i]});
                 gold_v = $signed({gold_input[i][7], gold_input[i]});
                 diff = rtl_v - gold_v;
                 if (diff > 10 || diff < -10) begin
@@ -491,7 +491,7 @@ module tb_top;
         begin
             mismatches = 0; first_bad = -1; first_rtl = 0; first_gold = 0;
             for (i = 0; i < 8; i = i + 1) begin
-                rtl_v  = $signed(u_top.u_gfa.gap_reg[i]);
+                rtl_v  = $signed(u_top.u_core.u_gfa.gap_reg[i]);
                 gold_v = $signed({gold_gap[i][7], gold_gap[i]});
                 diff = rtl_v - gold_v;
                 if (diff > 10 || diff < -10) begin
@@ -519,7 +519,7 @@ module tb_top;
         begin
             mismatches = 0; first_bad = -1; first_rtl = 0; first_gold = 0;
             for (i = 0; i < 4; i = i + 1) begin
-                rtl_v  = $signed(u_top.u_gfa.fc_acc[i]);
+                rtl_v  = $signed(u_top.u_core.u_gfa.fc_acc[i]);
                 gold_v = $signed(gold_logits[i]);
                 diff = rtl_v - gold_v;
                 if (diff > 10 || diff < -10) begin

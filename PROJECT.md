@@ -124,7 +124,7 @@ python export_weights_int8.py `
 
 ---
 
-## Trạng thái tiến độ (cập nhật 2026-05-30)
+## Trạng thái tiến độ (cập nhật 2026-06-04)
 
 ### Software — ✅ DONE (baseline)
 - [x] Re-prune model → channels (4,4,8,8) — `best_model_pruned.pth`
@@ -155,19 +155,33 @@ python export_weights_int8.py `
 - **C5 — Lightweight Avalon weight reload** (enabling mechanism cho C3).
 - **Wearable angle**: power-of-2 → 0 DSP rescale → low energy → fit wearable monitoring.
 
-### Block 1 — WSL (Software, ~1 tuần)
+### Block 1 — Software (~1 tuần) — ✅ DONE
 - [x] Phase A' — ✅ DONE: ablation A0/A0'/A2/A3/A4 + 5-fold + Chapman CM/ROC → `results/ablation_quant/TABLE4_FINAL.md`. Kết luận: power-of-2 ≈ general (Δ<std) nhưng −4 DSP18 → Pareto-ưu.
-- [ ] Phase A — MIT-BIH download (wfdb) + preprocess 360→500Hz lead II
-- [ ] Phase A — 5 mode eval: zero-shot / linear probe / full fine-tune / from-scratch / float32 baseline
+- [x] Phase A — ✅ DONE: dùng **PTB-XL** (không MIT-BIH) — 19,952 records, 500→250Hz, lead II → `cross_eval/ptbxl_cross_eval.json`
+- [x] Phase A — ✅ DONE: 6 modes C1–C6 + U0. C1 94.46% / zero-shot 77.1% / linear-probe 92.6% / full-FT 93.3%. **C2==C6 → quant drop = 0%** (toàn bộ drop = distribution shift)
 
 ### Block 2 — Windows (Hardware, ~1 tuần)
-- [ ] Phase B — refactor weight ROM → weight RAM (dual-port M10K), Avalon-MM loader
-- [ ] Phase B — mở rộng avalon_slave 5-bit → 12-bit address
-- [ ] Phase B — regression sim: 21/21 bit-exact phải tiếp tục PASS với weight load via Avalon
-- [ ] Phase C — Quartus Compile (5CSXFC6D6F31C6), TimeQuest Fmax
-- [ ] Phase C — PowerPlay với `.vcd` activity → dynamic + static power → energy/inference
-- [ ] Phase D — DE10-Standard program + HPS driver C (`ecg_classify.c`)
-- [ ] Phase D — verify on-board accuracy ~94.65%, load MIT-BIH weight → match Phase A
+
+**Phase B — tách core/bus + wrapper (LÀM NGAY, để setup HPS + đẩy xuống board)**
+- [ ] Phase B — tách `ecg_core.v` (core thuần: isram+pp+cpe+gfa+ctrl, interface = 8 dây sram_wr_addr/din/we + start/busy/done/result) khỏi bus
+- [ ] Phase B — `ecg_accelerator_top.v` co thành wrapper mỏng: instantiate `avalon_slave` (bus adapter) + `ecg_core`, nối 8 dây. `avalon_slave.v` GIỮ NGUYÊN — dùng chung Phase C (chân ảo) và Phase D (Qsys/HPS bridge)
+- [ ] Phase B — refactor thuần cấu trúc (copy/paste, KHÔNG đổi logic). Reset giữ nguyên: core dùng `rst` sync, bus dùng `rst_n` async
+- [ ] Phase B — regression sim: `tb_top.v` cũ phải 21/21 bit-exact PASS y như trước (thước đo refactor không hỏng gì); thêm `tb_core.v` drive thẳng start/sram_we (không qua bus)
+
+**Phase B01 — weight ROM → RAM reload (NOTE, XỬ LÝ SAU)**
+> Tách ra khỏi Phase B. Là enabling mechanism cho C5 (Avalon weight reload) + C3 cross-dataset on-hardware. Làm sau khi core đã tách + HPS chạy được trên board với weight $readmemh.
+- [ ] Phase B01 — refactor weight FF/ROM ($readmemh) → `weight_ram.v` dual-port M10K, write từ Avalon
+- [ ] Phase B01 — mở rộng avalon_slave 5-bit → 12-bit address (cover ~580 INT8 weight word)
+- [ ] Phase B01 — regression: 21/21 bit-exact PASS với weight load via Avalon (không $readmemh)
+
+**Phase C — Synthesis + Power (✅ DONE)**
+- [x] Phase C — ✅ DONE: Quartus Compile thật (5CSXFC6D6F31C6) — DSP 28/112 (25%), ALM 2261 (5%), Reg 3196, **Timing PASS @100MHz** (slack +0.508ns, Fmax ≈105MHz)
+- [x] Phase C — ✅ DONE: PowerPlay+VCD thật (95.6% toggle) — Total 623mW / Dyn 198mW / Static 413mW → **Energy/inf 10.3µJ dyn / 32.5µJ total**. DSP = 68% dynamic → nối thẳng C1
+
+**Phase D — On-board DE10-Standard (HPS)**
+- [ ] Phase D — dựng Qsys `soc_system` từ `ecg_core_hw.tcl` (component bọc `ecg_accelerator_top`) + HPS hard IP, đổi top synth → `soc_top.v`, thêm PLL 50→100MHz
+- [ ] Phase D — HPS driver C (`ecg_classify.c`): mmap h2f_lw bridge, nạp ECG → start → poll done → đọc result
+- [ ] Phase D — verify on-board accuracy ~94.65% (weight $readmemh, Chapman). Load PTB-XL weight → match Phase A là việc của Phase B01
 
 ### Block 3 — Writing (any env, ~1 tuần)
 - [ ] Phase E — bảng SoTA 6-8 papers ECG-FPGA + Pareto chart
@@ -185,4 +199,9 @@ python export_weights_int8.py `
 - **Output channels mới**: 4,4,8,8 (power-of-2) — cần re-train trước khi update hardware
 - **Dataset**: `d:\Thesis101\data\Chapman` (cross-dataset: `d:\Thesis101\data\ptbxl`)
 - **Simulation tool**: ModelSim/Questa (Windows) — RTL trong `hardware/`, sim trong `hardware/fpga/simulation/questa/`
+- **Cross-dataset = PTB-XL** (không phải MIT-BIH — đã chuyển vì PTB-XL 500Hz/10s sẵn, không cần resample 360Hz)
+- **`hardware/` = production** (8 modules, 21/21 bit-exact, synth thật). **`hardware_v3/` = skeleton reference** fully-mapped mirror Liu 2023 — KHÔNG thay production, chỉ để so sánh kiến trúc trong paper.
+- **`hardware/fpga/soc/`** = template Qsys/HPS (soc_top.v) cho Phase D — chưa dựng/chạy board.
+- **`avalon_slave.v` vẫn cần khi dùng HPS** — Qsys/HPS chỉ tự sinh interconnect + h2f bridge + decode địa chỉ, KHÔNG diễn dịch thanh ghi riêng của core (địa chỉ nào nạp SRAM, bit nào là start, đọc đâu ra done/result). Phần đó là `avalon_slave.v` thủ công, đóng vai **bus adapter** dùng chung Phase C/D. Chỉ bỏ được nếu đổi kiến trúc sang PIO core hoặc On-Chip RAM+DMA (đều là refactor lớn → không làm).
+- **Quartus install**: `D:\altera_lite\25.1std` — project `hardware/fpga/ecg_accelerator_top.qsf` (top = `ecg_accelerator_top` cho Phase C; đổi sang `soc_top` khi Phase D).
 - **Toàn bộ dự án chạy trong `d:\Thesis101`** — không tách Windows/WSL.

@@ -794,8 +794,12 @@ module tb_top;
     end
 
     initial begin
+        // Dump only the DUT subtree so PowerPlay's VCD root aligns with the
+        // synthesized top entity (ecg_accelerator_top). Dumping the whole
+        // tb_top makes the VCD root "tb_top", which PowerPlay cannot map to a
+        // design entity. Verification uses $display/compare, not the VCD.
         $dumpfile("tb_top.vcd");
-        $dumpvars(0, tb_top);
+        $dumpvars(0, u_top);
     end
 
 endmodule

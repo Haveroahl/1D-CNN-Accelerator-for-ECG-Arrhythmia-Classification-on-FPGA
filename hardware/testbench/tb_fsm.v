@@ -39,7 +39,7 @@ module tb_fsm;
         .avs_readdata (avs_readdata)
     );
 
-    wire [2:0] layer_state = u_top.ctrl_layer_state;
+    wire [2:0] layer_state = u_top.u_core.ctrl_layer_state;
 
     // FSM encoding (must match cnn_controller.v)
     localparam IDLE=3'd0, LOAD_INPUT=3'd1, CONV1=3'd2, CONV2=3'd3,

@@ -120,7 +120,7 @@ python export_weights_int8.py `
 | Float32 baseline | 1244 | ~94.8% | — | — |
 | Pruned float32 | 654 | ~92% | — | — |
 | QAT-INT8 float eval | 654 | ~94.84% | — | — |
-| **QAT-INT8 round-half-up** | **654** | **94.65%** | **0.9404** | **0.9404** |
+| **QAT-INT8 round-half-up** (bit-exact) | **654** | **94.65%** | **0.9396** | **0.9266** |
 
 ---
 
@@ -128,7 +128,7 @@ python export_weights_int8.py `
 
 ### Software — ✅ DONE (baseline)
 - [x] Re-prune model → channels (4,4,8,8) — `best_model_pruned.pth`
-- [x] QAT-INT8 power-of-2 round-half-up — `qat_int8/model_qat_int8.pth` (94.65% acc, F1 0.9404)
+- [x] QAT-INT8 power-of-2 round-half-up — `qat_int8/model_qat_int8.pth` (94.65% acc bit-exact, F1 0.9396)
 - [x] Export `flat_weights.hex` (580 INT8 entries, không comment lines)
 - [x] Golden `.mem` files (21 checkpoints / sample × 3 samples) — `results/golden/`
 

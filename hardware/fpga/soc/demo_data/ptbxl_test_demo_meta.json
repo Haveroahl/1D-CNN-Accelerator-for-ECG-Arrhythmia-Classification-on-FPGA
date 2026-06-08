@@ -1,0 +1,16 @@
+{
+  "set": "ptbxl_test",
+  "n_samples": 2997,
+  "sample_len": 2500,
+  "input_shift_bits": 2,
+  "expected_accuracy": 0.7707707707707707,
+  "class_distribution": {
+    "AFIB": 242,
+    "GSVT": 151,
+    "SB": 116,
+    "SR": 2488
+  },
+  "ecg_file": "ptbxl_test_ecg_int8.bin",
+  "labels_file": "ptbxl_test_labels.bin",
+  "format": "ecg: N*2500 signed int8 row-major; labels: N uint8"
+}

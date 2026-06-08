@@ -323,12 +323,14 @@ def int8_forward_general(qat_model, x, w_int8, b_float, w_scale, x_scale_in, x_s
 
     x = qat_model.gap(x).squeeze(-1)
 
-    # FC: output is raw logits for argmax — no rescale needed (argmax is scale-invariant)
+    # FC: no output rescale (argmax is scale-invariant), but the bias must be
+    # in the SAME domain as the integer logits to be commensurate. GAP preserves
+    # conv4's output scale, so s_acc_fc = x_scale_out['conv4'] * w_scale['fc'].
+    # → b_int = round(b_float / s_acc_fc), same pattern as conv4 bias (b/s_acc).
     w_fc = torch.tensor(w_int8['fc'].astype(np.float32)).to(device)
-    s_fc = w_scale['fc']
-    # x is INT8 after GAP clamp; FC output = x_int * w_int * (s_x_gap * s_fc)
-    # argmax only → scale factor irrelevant; bias added at float scale (b_float)
-    b_fc = torch.tensor(np.round(b_float['fc']).astype(np.float32)).to(device)
+    s_acc_fc = x_scale_out['conv4'] * w_scale['fc']
+    b_fc = torch.tensor(
+        np.round(b_float['fc'] / s_acc_fc).astype(np.float32)).to(device)
     return F.linear(x, w_fc, b_fc)
 
 

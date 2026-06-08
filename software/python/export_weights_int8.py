@@ -97,7 +97,8 @@ def nb_to_hex2(val: int) -> str:
 #  RTL hex file export (matches $readmemh layout in RTL)
 # ============================================================
 
-def export_rtl_hex(w_int8_ckpt: dict, b_float_ckpt: dict, nb_dict: dict, output_dir: str):
+def export_rtl_hex(w_int8_ckpt: dict, b_float_ckpt: dict, nb_dict: dict,
+                   w_shift_dict: dict, output_dir: str):
     """
     Export hex files matching RTL $readmemh layout (cp_engine.v packed ROM format):
 
@@ -107,6 +108,7 @@ def export_rtl_hex(w_int8_ckpt: dict, b_float_ckpt: dict, nb_dict: dict, output_
       conv4_w.hex — w_rom_conv4[0:63]   addr = oc*8 + ic    (64 entries × 40b)
       conv_bias.hex — b_store[oc*4 + layer_idx]              (32 entries × INT32)
       fc_weights.hex — fc_w[k*8 + i]                         (32 entries × INT8)
+      fc_bias.hex   — fc_b[k], scaled by 2^w_shift[fc]       (4 entries × INT32)
 
     Packed word layout (40-bit):  {tap4, tap3, tap2, tap1, tap0}  (MSB to LSB)
     Each tap = 8-bit two's complement, line = 10 hex chars.
@@ -184,7 +186,25 @@ def export_rtl_hex(w_int8_ckpt: dict, b_float_ckpt: dict, nb_dict: dict, output_
         for v in fc_entries:
             f.write(f"{v & 0xFF:02X}\n")
     print(f"  fc_weights.hex     ({len(fc_entries)} INT8 entries, layout [k*8+i])")
-    print(f"  fc_bias.hex        (omitted — round(b_float * 2^nb=0) = 0 for all neurons)")
+
+    # ---- fc_bias.hex: fc_b[k], INT32, 4 entries ----
+    # FC has no output rescale, so bias is scaled to the logit domain by
+    # 2^w_shift[fc] (commensurate with Σ gap[2^0]·w_fc[2^w_shift]). Added to
+    # fc_acc INT32 before argmax in gap_fc_argmax.v.
+    fc_shift = w_shift_dict.get('fc', 0)
+    fc_b_entries = [0, 0, 0, 0]
+    if 'fc' in b_float_ckpt:
+        b_fc = np.array(b_float_ckpt['fc'], dtype=np.float64)
+        for k in range(4):
+            if k < b_fc.shape[0]:
+                fc_b_entries[k] = int(np.clip(
+                    np.round(b_fc[k] * (2 ** fc_shift)), -(2**31), 2**31 - 1))
+
+    fc_b_path = os.path.join(output_dir, 'fc_bias.hex')
+    with open(fc_b_path, 'w') as f:
+        for v in fc_b_entries:
+            f.write(f"{v & 0xFFFFFFFF:08X}\n")
+    print(f"  fc_bias.hex        (4 INT32 entries, scaled 2^{fc_shift}=2^w_shift[fc]: {fc_b_entries})")
 
 
 # ============================================================
@@ -248,7 +268,9 @@ def export_all(checkpoint_path: str, output_dir: str):
 
     # w_int8 / b_int8 stored directly in checkpoint (QAT pipeline)
     w_int8_ckpt = ckpt.get('w_int8', {})
-    b_float_ckpt = ckpt.get('b_int8', {})  # misnomer: still float, needs scaling
+    # NOTE: checkpoint key 'b_int8' is a misnomer — it holds FLOAT bias, not INT8.
+    # Bias is scaled here (× 2^nb) at export time, NOT pre-quantized in the ckpt.
+    b_float_ckpt = ckpt.get('b_int8', {})
 
     print(f"[INFO] Quantization scheme: {quant_scheme}  bit_width={bit_width}")
     print(f"[INFO] Checkpoint epoch={checkpoint_epoch}  "
@@ -296,17 +318,20 @@ def export_all(checkpoint_path: str, output_dir: str):
         # --- Bias: for metadata ---
         if layer_name in b_float_ckpt:
             b_float = np.array(b_float_ckpt[layer_name], dtype=np.float64)
-            b_int32 = np.clip(np.round(b_float * (2 ** nb)), -(2**31), 2**31 - 1).astype(np.int64)
+            # FC has no >>nb rescale → bias scaled by 2^w_shift[fc] (logit domain);
+            # conv bias scaled by 2^nb (returns to b_float after >>nb).
+            b_shift = shift_bits if layer_name == 'fc' else nb
+            b_int32 = np.clip(np.round(b_float * (2 ** b_shift)), -(2**31), 2**31 - 1).astype(np.int64)
 
             b_info = {
                 'param': f"{layer_name}_bias",
                 'shape': list(b_float.shape),
                 'n_values': int(b_int32.size),
-                'nb': nb,
+                'bias_shift': int(b_shift),
                 'int32_range': [int(b_int32.min()), int(b_int32.max())],
             }
             summary.append(b_info)
-            print(f"  {layer_name}_bias     shape={str(list(b_float.shape)):<18} nb={nb}  int32_range=[{b_int32.min()},{b_int32.max()}]")
+            print(f"  {layer_name}_bias     shape={str(list(b_float.shape)):<18} bias_shift={b_shift}  int32_range=[{b_int32.min()},{b_int32.max()}]")
 
     # ---- Export nb as activation shift ROM ----
     nb_path = os.path.join(output_dir, 'nb_shifts.mem')
@@ -325,7 +350,7 @@ def export_all(checkpoint_path: str, output_dir: str):
 
 
     # ---- RTL hex files: conv_weights.hex, conv_bias.hex, fc_weights.hex ----
-    export_rtl_hex(w_int8_ckpt, b_float_ckpt, nb_dict, output_dir)
+    export_rtl_hex(w_int8_ckpt, b_float_ckpt, nb_dict, w_shifts_dict, output_dir)
 
     # ---- Summary JSON ----
     total_params = sum(s['n_values'] for s in summary)

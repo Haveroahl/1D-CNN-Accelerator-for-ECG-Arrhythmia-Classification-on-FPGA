@@ -1,0 +1,16 @@
+{
+  "set": "chapman_test",
+  "n_samples": 1065,
+  "sample_len": 2500,
+  "input_shift_bits": 2,
+  "expected_accuracy": 0.9464788732394366,
+  "class_distribution": {
+    "AFIB": 218,
+    "GSVT": 242,
+    "SB": 380,
+    "SR": 225
+  },
+  "ecg_file": "chapman_test_ecg_int8.bin",
+  "labels_file": "chapman_test_labels.bin",
+  "format": "ecg: N*2500 signed int8 row-major; labels: N uint8"
+}

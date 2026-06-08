@@ -38,14 +38,14 @@ module tb_layer;
 
     // ── Hierarchical signal aliases (ModelSim hierarchical reference) ──
     // Use wire assignments to bring internal signals to testbench scope
-    wire [2:0]  layer_state  = u_top.ctrl_layer_state;
-    wire        bank_sel     = u_top.ctrl_bank_sel;
-    wire        pool_write   = u_top.cp_pool_write;
-    wire [11:0] pong_addr    = u_top.ctrl_pong_addr;
-    wire [7:0]  cp_en        = u_top.ctrl_cp_en;
-    wire [7:0]  cp_pong_we   = u_top.cp_pong_we;
-    wire        srw_rst      = u_top.ctrl_srw_rst;
-    wire        compute_en   = u_top.ctrl_compute_en;
+    wire [2:0]  layer_state  = u_top.u_core.ctrl_layer_state;
+    wire        bank_sel     = u_top.u_core.ctrl_bank_sel;
+    wire        pool_write   = u_top.u_core.cp_pool_write;
+    wire [11:0] pong_addr    = u_top.u_core.ctrl_pong_addr;
+    wire [7:0]  cp_en        = u_top.u_core.ctrl_cp_en;
+    wire [7:0]  cp_pong_we   = u_top.u_core.cp_pong_we;
+    wire        srw_rst      = u_top.u_core.ctrl_srw_rst;
+    wire        compute_en   = u_top.u_core.ctrl_compute_en;
 
     // Layer state encoding (from cnn_controller.v)
     localparam IDLE       = 3'd0;

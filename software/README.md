@@ -41,7 +41,7 @@ python train.py
 # 2. Prune + finetune → channels (4,4,8,8) (✅ đã có)
 python prune_finetune.py --checkpoint .\results\best_model.pth
 
-# 3. QAT-INT8 power-of-2 (✅ đã có — 94.65% acc, F1=0.9404)
+# 3. QAT-INT8 power-of-2 (✅ đã có — 94.65% acc bit-exact, F1=0.9396)
 python quantization\qat_int8.py `
     --checkpoint .\results\best_model_pruned.pth `
     --output_dir .\results\qat_int8

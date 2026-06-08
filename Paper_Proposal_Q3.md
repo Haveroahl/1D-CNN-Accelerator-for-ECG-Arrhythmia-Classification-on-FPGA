@@ -30,7 +30,7 @@ Tiêu đề phụ ngắn (nếu Letter):
 ### 2.2. Gap của các công trình trước (sẽ chứng minh trong Related Work)
 | Hạn chế thường thấy trong ECG-FPGA literature | Hướng giải quyết của paper này |
 |---|---|
-| Dùng general-scale INT8 (cần DSP nhân scale), không phân tích cost-accuracy của power-of-2 shift | ⭐ **Power-of-2 QAT methodology + ablation** vs general-scale (DSP, energy, accuracy) |
+| Dùng power-of-2 shift nhưng **floor truncation** (Liu 2023) + không phân tích cost-accuracy power-of-2 vs general-scale | ⭐ **Round-half-up rescale (+0.38% vs floor) + ablation định lượng** power-of-2 vs general-scale vs floor (DSP, energy, accuracy) |
 | Báo accuracy float vs INT8 nhưng không bit-exact với RTL → "INT8 simulation" và RTL thường lệch | ⭐ **Round-half-up bit-exact pipeline** (21 checkpoint match Python ↔ RTL) |
 | Đánh giá chỉ trên 1 dataset, không trả lời được câu hỏi generalization | ⭐ **Empirical cross-dataset study** Chapman ↔ PTB-XL trên FPGA thực |
 | Chỉ báo accuracy + LUT/FF, thiếu Energy/inference (chỉ số quan trọng cho wearable) | **Đo Power qua PowerPlay + Energy/inference µJ** |
@@ -40,7 +40,7 @@ Tiêu đề phụ ngắn (nếu Letter):
 
 **Đóng góp chính (research contributions):**
 
-1. **C1 — Power-of-Two QAT methodology với phân tích định lượng**: QAT scheme với `nb` và `w_shift` chọn theo `floor(log2(127/abs_max))`, round-half-up rescale. **Ablation systematic** so với general-scale INT8 trên cùng model/dataset: chỉ ra trade-off DSP-count, energy, accuracy drop.
+1. **C1 — Round-half-up power-of-2 rescale + phân tích định lượng**: power-of-2 shift rescale (`nb = ⌈log2(maxO/127)⌉`) là nền tảng chung với prior fully-mapped design (Liu 2023, dùng arithmetic-shift = floor truncation). **Novelty của thesis KHÔNG phải power-of-2 (Liu đã có), mà là**: (i) **round-half-up** `(O + 2^(nb-1)) ≫ nb` thay floor — đo được **+0.38% accuracy** (A2 94.37 vs A4 floor 93.99) ở **0 DSP cost**; (ii) **ablation systematic** power-of-2 vs general-scale vs floor + 5-fold robustness — phân tích cost-accuracy mà SoTA KHÔNG cung cấp; (iii) round-half-up được **verify bit-exact với RTL** (xem C2). Lưu ý defendable: KHÔNG claim "power-of-2 QAT là phương pháp mới"; claim là cải tiến rounding + ablation + verification.
 2. **C2 — Bit-exact verification framework**: 21 golden checkpoints (input, 4 pool outputs, GAP, FC logits) match bit-exact giữa Python QAT model và RTL simulation — methodology reproducible cho các CNN INT8 khác.
 3. **C3 — Empirical cross-dataset transfer study trên FPGA INT8**: Đánh giá định lượng zero-shot / linear probe / full fine-tune giữa Chapman và PTB-XL trên cùng IP core thật (không phải software simulation). Trả lời câu hỏi: "INT8 quantized ECG model có generalize giữa datasets không?".
 
@@ -219,8 +219,8 @@ On-board (DE10-Standard)
 ### 6.1. Bắt buộc trong paper
 | Metric | Đơn vị | Status hiện tại |
 |---|---|---|
-| Accuracy (test set Chapman) | % | ✅ 94.65% |
-| F1-macro, per-class F1 | — | ✅ 0.94 |
+| Accuracy (test set Chapman) | % | ✅ 94.65% (INT8 bit-exact = float) |
+| F1-macro, per-class F1 | — | ✅ 0.9396 (INT8 bit-exact) |
 | Confusion matrix (Chapman) | — | ✅ `results/figures/chapman_confusion_matrix.png` |
 | ROC / AUC | — | ✅ macro-AUC 0.967 — `results/figures/chapman_roc.png` |
 | K-fold (5-fold) mean ± std | — | ✅ 5 test-fold robustness — `kfold/kfold_summary.json` |
@@ -402,7 +402,7 @@ References (40-60 entries)
 ## 12. Action checklist tóm tắt
 
 ### ✅ Đã hoàn thành
-- [x] QAT-INT8 power-of-2 round-half-up — `model_qat_int8.pth` (94.65%, F1=0.9404)
+- [x] QAT-INT8 power-of-2 round-half-up — `model_qat_int8.pth` (94.65% bit-exact, F1=0.9396)
 - [x] Export `flat_weights.hex` (580 INT8 entries)
 - [x] RTL 8 modules, testbench tb_top.v — 21/21 bit-exact PASS
 - [x] Latency đo: 5216 cy / 52.16 µs @ 100 MHz
@@ -458,7 +458,7 @@ References (40-60 entries)
 
 Sau khi điều chỉnh theo Hướng 3 (a)+(c), novelty của paper tập trung vào hai trục **defendable trước reviewer Q3**:
 
-- **(a) Power-of-2 QAT methodology** — không chỉ "we use power-of-2" mà có **ablation định lượng** vs general-scale INT8 và floor variant, chứng minh trade-off DSP/energy/accuracy.
+- **(a) Round-half-up rescale + ablation định lượng** — power-of-2 shift là nền tảng chung với Liu 2023 (KHÔNG claim là mới); novelty là round-half-up thay floor truncation của Liu (+0.38% đo được, 0 DSP) cộng ablation power-of-2 vs general-scale vs floor mà SoTA thiếu, chứng minh trade-off DSP/energy/accuracy.
 - **(c) Empirical cross-dataset transfer study** trên FPGA INT8 — là **câu hỏi research thật**, không phải engineering claim. Decomposition quant-vs-distribution là điểm reviewer sẽ khen.
 
 Runtime weight reload (Phase B) được pitch lại là **enabling mechanism**, minh bạch trong Section 4.6 và 6.4. Reviewer sẽ không thể critique "this is standard DPU technique" vì paper không claim nó là contribution chính.

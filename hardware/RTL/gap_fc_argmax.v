@@ -6,8 +6,9 @@
 // ping_dout[0..7] are driven by ping_pong_sram with pong_rd_addr as read address.
 //
 // FC weights: stored in fc_w[k][i], k=0..3 output neurons, i=0..7 inputs
-// NB=0 → no rescale; FC bias omitted (b_float range tiny, round(b_float*2^0)=0).
-// If model is re-trained and FC bias rounds non-zero, add fc_bias.hex + INT32 addition here.
+// NB=0 → no output rescale (argmax is scale-invariant). FC logits live at scale
+// 2^w_shift[fc], so the FC bias is pre-scaled by 2^w_shift[fc] (fc_bias.hex,
+// INT32) to be commensurate with fc_acc, and seeded into fc_acc before the MACs.
 
 module gap_fc_argmax (
     input  wire        clk,
@@ -44,8 +45,12 @@ module gap_fc_argmax (
     // 4 output neurons × 8 inputs × INT8, 1D flat (Verilog-2001)
     // addr = k*8 + i,  fc_weights.hex layout [k][i] row-major
     reg signed [7:0] fc_w [0:31];
+    // FC bias: 4 × INT32, scaled by 2^w_shift[fc] (logit domain). Seeded into
+    // fc_acc at fc_step==0 so the MAC accumulation adds it for free.
+    reg signed [31:0] fc_b [0:3];
     initial begin
         $readmemh("fc_weights.hex", fc_w);
+        $readmemh("fc_bias.hex", fc_b);
     end
 
     // ── GAP datapath ───────────────────────────────────────────────────────
@@ -144,8 +149,9 @@ module gap_fc_argmax (
                 4'd0: begin
                     prod_valid <= 1'b0;
                     fc_w_idx   <= 3'd0;
+                    // Seed accumulator with pre-scaled bias (logit domain).
                     for (k_i = 0; k_i < 4; k_i = k_i + 1)
-                        fc_acc[k_i] <= 32'sd0;
+                        fc_acc[k_i] <= fc_b[k_i];
                 end
                 default: begin
                     // Stage 1: latch gap[fc_step-1] for steps 1..8; hold at step 9

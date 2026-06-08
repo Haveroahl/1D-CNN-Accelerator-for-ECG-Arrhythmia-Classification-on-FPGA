@@ -4,7 +4,13 @@
 Lightweight 1D-CNN architecture optimized for FPGA deployment.
 No ReLU after Conv1, Conv2, Conv3; ReLU only after Conv4.
 
-Input (2500×1)
+Two architectures live in this codebase:
+  - ECG_1DCNN (this file)   : base/dense  1→4→8→8→16  (FC 16→4)
+  - ECG_1DCNN_Pruned        : hardware target, defined in prune_finetune.py,
+                              channels 1→4→4→8→8 (FC 8→4) — the deployed model.
+
+ECG_1DCNN (base, dense) tensor shapes:
+  Input (2500×1)
   Conv1 (1→4,  K=5, P=2) → MaxPool(5) →  500×4
   Conv2 (4→8,  K=5, P=2) → MaxPool(5) →  100×8
   Conv3 (8→8,  K=5, P=2) → MaxPool(5) →   20×8
@@ -259,21 +265,25 @@ class ECG_1DCNN_INT8(nn.Module):
         x = self._pool2(self._conv_layer(x, 'conv2'))
         x = self._pool3(self._conv_layer(x, 'conv3'))
 
-        # conv4: ReLU before requantize
+        # conv4: match RTL order acc → >>nb → clamp[-127,127] → ReLU → MaxPool
         w4 = torch.tensor(self._w_int8['conv4']).to(self.device)
         n4 = self._nb['conv4']
         b4 = torch.tensor(
             np.round(self._b_float['conv4'] * (2.0 ** n4)).astype(np.float32)
         ).to(self.device)
-        x = F.relu(F.conv1d(x, w4, b4, padding=self._padding))
+        x = F.conv1d(x, w4, b4, padding=self._padding)
         x = torch.clamp(_round_shift(x, n4), -127, 127)
+        x = F.relu(x)
         x = self._pool4(x)
 
         x = self._gap(x).squeeze(-1)
 
+        # FC has no output rescale → bias scaled to logit domain by 2^w_shift[fc]
+        # (commensurate with Σ gap[2^0]·w_fc[2^w_shift]), matching RTL fc_bias.hex.
         w_fc = torch.tensor(self._w_int8['fc']).to(self.device)
+        fc_shift = self._w_shift['fc']
         b_fc = torch.tensor(
-            np.round(self._b_float['fc']).astype(np.float32)
+            np.round(self._b_float['fc'] * (2.0 ** fc_shift)).astype(np.float32)
         ).to(self.device)
         return F.linear(x, w_fc, b_fc)
 

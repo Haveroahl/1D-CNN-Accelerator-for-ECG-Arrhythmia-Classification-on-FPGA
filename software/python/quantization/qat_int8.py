@@ -356,13 +356,16 @@ def int8_forward(qat_model, x, w_int8, b_int8, w_shift, nb, input_shift):
 
     x = qat_model.gap(x).squeeze(-1)
 
-    # FC: input is INT8, w_shift[fc] applied
-    # Output = raw integer logits (no rescaling needed, argmax is scale-invariant)
+    # FC: input is INT8 (scale 2^0), weights at scale 2^w_shift['fc'].
+    # → logits live at scale 2^w_shift['fc']. No output rescale (argmax is
+    #   scale-invariant), but the bias must be brought to the SAME scale as the
+    #   logits to be commensurate: b_scaled = round(b_float * 2^w_shift['fc']).
+    #   (Scaling by 2^0 would round the tiny float bias to 0 and silently drop it.)
     w_fc = torch.tensor(w_int8['fc'].astype(np.float32)).to(device)
     b_float_fc = b_int8['fc']
-    # FC output is used for argmax only — no rescaling needed, so nb=0
-    # bias is added unscaled (b_float * 2^0 = b_float, rounded to int)
-    b_fc_scaled = torch.tensor(np.round(b_float_fc).astype(np.float32)).to(device)
+    fc_shift = w_shift['fc']
+    b_fc_scaled = torch.tensor(
+        np.round(b_float_fc * (2.0 ** fc_shift)).astype(np.float32)).to(device)
     return F.linear(x, w_fc, b_fc_scaled)
 
 
@@ -413,14 +416,19 @@ def export_mem_files(w_int8, b_int8, w_shift, nb, input_shift, output_dir):
 
         if name in b_int8:
             b_float = b_int8[name].flatten()
-            # Bias must be pre-scaled by 2^nb so hardware can add directly to acc_int32
-            # After acc_int32 >> nb, the bias contributes its original float value
-            n_bias = nb.get(name, 0)  # conv: use nb; fc: nb=0 (argmax is scale-invariant)
+            # Bias scale: conv layers have an output rescale (>>nb) so bias is
+            # pre-scaled by 2^nb (after >>nb it returns to b_float). FC has NO
+            # output rescale, so its bias must instead be scaled by 2^w_shift[fc]
+            # to sit in the same domain as the logits (Σ gap[2^0]·w_fc[2^w_shift]).
+            n_bias   = w_shift['fc'] if name == 'fc' else nb.get(name, 0)
             b_scaled = np.round(b_float * (2.0 ** n_bias)).astype(np.int32)
             mem_path = os.path.join(mem_dir, f"{name}_bias.mem")
             with open(mem_path, 'w') as f:
-                f.write(f"// {name}_bias  scaled by 2^{n_bias}  (add to acc_int32 before >>nb)\n")
-                f.write(f"// Hardware: b_eff = b_float * 2^{n_bias},  after >>nb = b_float\n")
+                f.write(f"// {name}_bias  scaled by 2^{n_bias}  (add to acc_int32)\n")
+                if name == 'fc':
+                    f.write(f"// FC: no >>nb; bias at logit scale 2^{n_bias} = 2^w_shift[fc]\n")
+                else:
+                    f.write(f"// Hardware: b_eff = b_float * 2^{n_bias},  after >>nb = b_float\n")
                 for v in b_scaled:
                     # Bias can exceed INT8 range — store as 32-bit hex (8 chars)
                     f.write(f"{int(v) & 0xFFFFFFFF:08X}\n")
@@ -524,7 +532,7 @@ def run(args):
     # ---- Phase 1: QAT training ----
     qat_path = os.path.join(args.output_dir, 'model_qat_float.pth')
 
-    if not args.eval_only and not (args.eval_only and is_qat_checkpoint):
+    if not args.eval_only:
         print(f"\n{'='*60}")
         print(f"  Phase 1: QAT Training ({args.epochs} epochs, lr={args.lr})")
         print(f"{'='*60}")
@@ -587,7 +595,7 @@ def run(args):
     print(f"{'='*60}")
 
     # If QAT INT8 checkpoint provided with eval_only, reuse INT8 data
-    if args.eval_only and is_qat_checkpoint and 'w_int8' in ckpt:
+    if args.eval_only and is_qat_checkpoint and 'w_int8' in ckpt and 'b_int8' in ckpt:
         print(f"[INFO] Using INT8 data from checkpoint")
         w_int8 = {k: np.array(v, dtype=np.int8) for k, v in ckpt['w_int8'].items()}
         b_int8 = {k: np.array(v, dtype=np.float64) for k, v in ckpt['b_int8'].items()}

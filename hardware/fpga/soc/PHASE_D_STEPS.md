@@ -119,3 +119,4 @@ sudo ./ecg_classify sample0.bin     # → class = 3 (SR)  v.v.
 §7 PLL ──────────────────┘                                  (⚠️ reconcile port names §6.3)
 ```
 Điểm chết người nhất: **§2.3 DDR3 preset** (HPS không boot) và **§6.3 reconcile port** (compile fail).
+ 

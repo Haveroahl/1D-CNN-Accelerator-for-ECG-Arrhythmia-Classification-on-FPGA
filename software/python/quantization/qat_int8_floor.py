@@ -84,9 +84,12 @@ def int8_forward_floor(qat_model, x, w_int8, b_int8, w_shift, nb, input_shift):
 
     x = qat_model.gap(x).squeeze(-1)
 
+    # FC bias scaled to logit domain by 2^w_shift[fc] (no output rescale).
     w_fc = torch.tensor(w_int8['fc'].astype(np.float32)).to(device)
     b_float_fc = b_int8['fc']
-    b_fc_scaled = torch.tensor(np.round(b_float_fc).astype(np.float32)).to(device)
+    fc_shift = w_shift['fc']
+    b_fc_scaled = torch.tensor(
+        np.round(b_float_fc * (2.0 ** fc_shift)).astype(np.float32)).to(device)
     return F.linear(x, w_fc, b_fc_scaled)
 
 

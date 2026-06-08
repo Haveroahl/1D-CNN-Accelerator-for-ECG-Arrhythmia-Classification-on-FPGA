@@ -66,7 +66,7 @@ def write_int32_mem(path, tensor):
             f.write(to_hex8(v) + "\n")
 
 
-def int8_forward_golden(qat_model, x_raw, w_int8, b_int8, nb, input_shift, device):
+def int8_forward_golden(qat_model, x_raw, w_int8, b_int8, nb, w_shift, input_shift, device):
     """INT8 forward matching RTL pipeline: acc → +bias → >>nb → clamp → ReLU → pool."""
     stages = {}
 
@@ -118,14 +118,14 @@ def int8_forward_golden(qat_model, x_raw, w_int8, b_int8, nb, input_shift, devic
     after_gap = torch.floor(gap_sum / 4.0)               # match RTL [9:2] slice
     stages['after_gap'] = after_gap.squeeze(0)           # (8,)
 
-    # FC
+    # FC — no output rescale, so bias is scaled to the logit domain by
+    # 2^w_shift[fc] (commensurate with Σ gap[2^0]·w_fc[2^w_shift]). RTL adds
+    # fc_bias.hex (INT32) to fc_acc before argmax — this golden must match.
     w_fc = torch.tensor(w_int8['fc'].astype(np.float32)).to(device)
-    # nb=0 for FC → bias_scaled = round(b_float * 2^0). RTL omits FC bias entirely.
-    # Assert all-zero so mismatch is caught if model is re-trained with larger bias.
-    b_fc_int = np.round(b_int8['fc']).astype(np.int32)
-    assert np.all(b_fc_int == 0), \
-        f"FC bias non-zero after rounding: {b_fc_int} — add fc_bias.hex + INT32 adder to RTL"
-    logits = F.linear(after_gap, w_fc)  # no bias, matches RTL
+    fc_shift = w_shift['fc']
+    b_fc = torch.tensor(
+        np.round(b_int8['fc'] * (2.0 ** fc_shift)).astype(np.float32)).to(device)
+    logits = F.linear(after_gap, w_fc, b_fc)
     stages['logits_fc'] = logits.squeeze(0)              # (4,)
     stages['predicted_class'] = int(logits.argmax(dim=1).item())
 
@@ -148,6 +148,7 @@ def run(args):
     w_int8      = {k: np.array(v, dtype=np.int8)    for k, v in ckpt['w_int8'].items()}
     b_int8      = {k: np.array(v, dtype=np.float64) for k, v in ckpt['b_int8'].items()}
     nb          = ckpt['nb']
+    w_shift     = ckpt['w_shift']
     input_shift = ckpt['input_shift_bits']
 
     _, _, test_loader = get_dataloaders(args.data_dir, batch_size=256, num_workers=0)
@@ -166,7 +167,7 @@ def run(args):
 
     with torch.no_grad():
         stages = int8_forward_golden(
-            qat_model, x_sample, w_int8, b_int8, nb, input_shift, device
+            qat_model, x_sample, w_int8, b_int8, nb, w_shift, input_shift, device
         )
 
     pred = stages['predicted_class']

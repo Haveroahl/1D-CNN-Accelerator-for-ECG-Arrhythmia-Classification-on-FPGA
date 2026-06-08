@@ -1,7 +1,7 @@
 // conv2_weight  shape=[4, 4, 5]
 // INT8  shift_bits=6  (scale=2^6)
 01
-EF
+F0
 F1
 FF
 11
@@ -17,12 +17,12 @@ FD
 0F
 F9
 EA
-E6
+E7
 0A
 19
 17
 FA
-0C
+0D
 15
 1D
 05
@@ -39,7 +39,7 @@ FF
 01
 FC
 18
-13
+14
 FB
 06
 1F
@@ -47,11 +47,11 @@ FB
 CD
 F6
 0E
-16
+15
 0C
 D1
 EF
-09
+08
 22
 02
 CE
@@ -76,7 +76,7 @@ DD
 FF
 18
 16
-06
+05
 D5
 13
 07

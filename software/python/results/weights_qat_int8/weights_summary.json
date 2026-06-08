@@ -1,5 +1,5 @@
 {
-  "checkpoint": "./results/qat_int8/model_qat_int8.pth",
+  "checkpoint": ".\\results\\qat_int8\\model_qat_int8.pth",
   "checkpoint_epoch": "?",
   "quantization_scheme": "QAT-INT8",
   "bit_width": 8,
@@ -39,9 +39,9 @@
         4
       ],
       "n_values": 4,
-      "nb": 8,
+      "bias_shift": 8,
       "int32_range": [
-        -95,
+        -96,
         139
       ]
     },
@@ -65,7 +65,7 @@
         4
       ],
       "n_values": 4,
-      "nb": 6,
+      "bias_shift": 6,
       "int32_range": [
         -24,
         4
@@ -91,7 +91,7 @@
         8
       ],
       "n_values": 8,
-      "nb": 6,
+      "bias_shift": 6,
       "int32_range": [
         -37,
         13
@@ -117,7 +117,7 @@
         8
       ],
       "n_values": 8,
-      "nb": 7,
+      "bias_shift": 7,
       "int32_range": [
         -5,
         40
@@ -142,10 +142,10 @@
         4
       ],
       "n_values": 4,
-      "nb": 0,
+      "bias_shift": 8,
       "int32_range": [
-        0,
-        0
+        -63,
+        24
       ]
     }
   ]

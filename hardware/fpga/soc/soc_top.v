@@ -41,7 +41,12 @@ module soc_top (
     output wire        HPS_DDR3_RAS_n,
     output wire        HPS_DDR3_RESET_n,
     input  wire        HPS_DDR3_RZQ,
-    output wire        HPS_DDR3_WE_n
+    output wire        HPS_DDR3_WE_n,
+
+    // ── 7-segment displays for accuracy % (HEX2 HEX1 HEX0, active-low) ───
+    output wire [6:0]  HEX0,
+    output wire [6:0]  HEX1,
+    output wire [6:0]  HEX2
     // NOTE: a real DE10-Standard pin-out has many more HPS pins (Ethernet,
     // UART, SD, USB, I2C…). For a minimal "HPS boots Linux + talks to FPGA via
     // lightweight bridge" demo you only strictly need DDR3 + the HPS pins Qsys
@@ -117,7 +122,23 @@ module soc_top (
         .memory_mem_dqs_n   (HPS_DDR3_DQS_n),
         .memory_mem_odt     (HPS_DDR3_ODT),
         .memory_mem_dm      (HPS_DDR3_DM),
-        .oct_rzqin          (HPS_DDR3_RZQ)
+        .oct_rzqin          (HPS_DDR3_RZQ),
+
+        // ── 7-seg accuracy PIO (export from Qsys) ───────────────────────
+        // Add a PIO (7-bit, output) in Platform Designer, wire its master side
+        // to hps_0.h2f_lw_axi_master, and export the output conduit as
+        // `seg7_pio_export`. Qsys will name it e.g. seg7_pio_external_connection_export.
+        // Reconcile the exact name after Generate HDL (see PHASE_D_STEPS §6.3).
+        .seg7_pio_export    (acc_pct)
+    );
+
+    // ── Accuracy 7-segment decode (HPS writes 0..100 → HEX2/1/0) ────────
+    wire [6:0] acc_pct;    // raw accuracy from PIO
+    seg7_acc u_seg7 (
+        .acc_in (acc_pct),
+        .hex0   (HEX0),
+        .hex1   (HEX1),
+        .hex2   (HEX2)
     );
 
 endmodule

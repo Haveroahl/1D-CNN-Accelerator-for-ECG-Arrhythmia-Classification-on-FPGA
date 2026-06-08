@@ -271,6 +271,11 @@ module tb_top;
     integer    l2_pass_cnt, l2_fail_cnt;
     integer    current_sample;
 
+    // ── Diagnostic: actual deviation RTL vs Python golden (not just tol pass) ──
+    integer        g_nonzero;        // # elements where RTL != golden exactly
+    integer        g_total;          // # elements compared
+    reg signed [31:0] g_max_diff;    // max |RTL - golden| over all stages/samples
+
     // ── Helpers: read per-channel ping_pong memory ─────────────────────
     // ping_pong_sram uses 16 separate 1D arrays (mem_a_ch0..7, mem_b_ch0..7)
     // with ramstyle="M10K" to force per-channel M10K inference. Testbench
@@ -308,6 +313,10 @@ module tb_top;
                     rtl_v  = $signed({raw[7], raw});
                     gold_v = $signed({gold_pool1[idx][7], gold_pool1[idx]});
                     diff = rtl_v - gold_v;
+                    g_total = g_total + 1;
+                    if (diff != 0) g_nonzero = g_nonzero + 1;
+                    if (diff  >  g_max_diff) g_max_diff =  diff;
+                    if (-diff >  g_max_diff) g_max_diff = -diff;
                     if (diff > 10 || diff < -10) begin
                         mismatches = mismatches + 1;
                         if (first_bad < 0) begin
@@ -342,6 +351,10 @@ module tb_top;
                     rtl_v  = $signed({raw[7], raw});
                     gold_v = $signed({gold_pool2[idx_gold][7], gold_pool2[idx_gold]});
                     diff = rtl_v - gold_v;
+                    g_total = g_total + 1;
+                    if (diff != 0) g_nonzero = g_nonzero + 1;
+                    if (diff  >  g_max_diff) g_max_diff =  diff;
+                    if (-diff >  g_max_diff) g_max_diff = -diff;
                     if (diff > 10 || diff < -10) begin
                         mismatches = mismatches + 1;
                         if (first_bad < 0) begin
@@ -376,6 +389,10 @@ module tb_top;
                     rtl_v  = $signed({raw[7], raw});
                     gold_v = $signed({gold_pool3[idx_gold][7], gold_pool3[idx_gold]});
                     diff = rtl_v - gold_v;
+                    g_total = g_total + 1;
+                    if (diff != 0) g_nonzero = g_nonzero + 1;
+                    if (diff  >  g_max_diff) g_max_diff =  diff;
+                    if (-diff >  g_max_diff) g_max_diff = -diff;
                     if (diff > 10 || diff < -10) begin
                         mismatches = mismatches + 1;
                         if (first_bad < 0) begin
@@ -410,6 +427,10 @@ module tb_top;
                     rtl_v  = $signed({raw[7], raw});
                     gold_v = $signed({gold_pool4[idx_gold][7], gold_pool4[idx_gold]});
                     diff = rtl_v - gold_v;
+                    g_total = g_total + 1;
+                    if (diff != 0) g_nonzero = g_nonzero + 1;
+                    if (diff  >  g_max_diff) g_max_diff =  diff;
+                    if (-diff >  g_max_diff) g_max_diff = -diff;
                     if (diff > 10 || diff < -10) begin
                         mismatches = mismatches + 1;
                         if (first_bad < 0) begin
@@ -538,6 +559,7 @@ module tb_top;
     initial begin
         pass_cnt = 0; fail_cnt = 0;
         l2_pass_cnt = 0; l2_fail_cnt = 0;
+        g_nonzero = 0; g_total = 0; g_max_diff = 0;
         verify_en = 1'b0;
         current_sample = 0;
         states_seen = 8'h00;
@@ -740,6 +762,8 @@ module tb_top;
         // ── Summary ────────────────────────────────────────────────────
         $display("=== tb_top SUMMARY: %0d PASS, %0d FAIL ===", pass_cnt, fail_cnt);
         $display("=== L2 BIT-EXACT (tol +/-10): %0d PASS, %0d FAIL ===", l2_pass_cnt, l2_fail_cnt);
+        $display("=== DEVIATION vs Python golden: max|diff|=%0d LSB, %0d/%0d elements differ (%0d exact) ===",
+                 g_max_diff, g_nonzero, g_total, g_total - g_nonzero);
         if (fail_cnt === 0 && l2_fail_cnt === 0)
             $display("ALL TESTS PASSED (incl. per-layer bit-exact)");
         $finish;

@@ -13,6 +13,7 @@
 vcover merge \
     -du cp_block -du cp_engine -du cnn_controller -du gap_fc_argmax \
     -du ping_pong_sram -du input_sram -du avalon_slave -du ecg_accelerator_top \
+    -du ecg_core \
     cov_merged.ucdb \
     cov_cp_block.ucdb cov_layer.ucdb cov_fsm.ucdb cov_top.ucdb
 
@@ -20,12 +21,13 @@ vcover merge \
 puts "==== RAW (DU-merged, all metrics) ===="
 vcover report -summary cov_merged.ucdb
 
-# Apply unreachable-default exclusions, save, report FUNCTIONAL figure.
-vsim -viewcov cov_merged.ucdb -do {
-    do cov_exclude.do
-    coverage save cov_merged_excl.ucdb
-    quit -f
-}
+# Apply unreachable-default exclusions, save excluded DB.
+# NOTE: load the merged DB as a coverage dataset in THIS session (coverage open)
+# instead of a nested `vsim -viewcov ... {quit -f}` — the nested vsim/quit tears
+# down the running .do before the report lines below ever execute.
+coverage open cov_merged.ucdb
+do cov_exclude.do
+coverage save cov_merged_excl.ucdb
 
 # FUNCTIONAL: branch/condition/expression/fsm/statement, toggle dropped
 # (toggle is data-bus noise — values proven bit-exact by tb_top).

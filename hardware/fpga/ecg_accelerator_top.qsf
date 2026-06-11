@@ -113,6 +113,14 @@ set_global_assignment -name HEX_FILE ../RTL/conv3_w.hex
 set_global_assignment -name HEX_FILE ../RTL/conv2_w.hex
 set_global_assignment -name HEX_FILE ../RTL/conv1_w.hex
 set_global_assignment -name HEX_FILE ../RTL/conv_bias.hex
+# ── RTL source files (shared by all variants) ──────────────────────────────
+# NOTE on naming: this project is named "ecg_accelerator_top" after the Phase C
+# top (core + Avalon slave, used solo for synthesis/power). In Phase D the real
+# top is niosv_top / jtag_top (set above); the Qsys system instantiates ecg_core
+# directly, so ecg_accelerator_top.v + avalon_slave.v are NOT in the Phase D
+# design tree. They are kept listed because (a) Quartus only synthesizes reachable
+# modules — an unreferenced VERILOG_FILE is loaded but harmless, and (b) the
+# Phase C top + tb_top.v regression still need them. Do not remove.
 set_global_assignment -name VERILOG_FILE ../RTL/ping_pong_sram.v
 set_global_assignment -name VERILOG_FILE ../RTL/input_sram.v
 set_global_assignment -name VERILOG_FILE ../RTL/gap_fc_argmax.v

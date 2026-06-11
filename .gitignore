@@ -58,3 +58,28 @@ hardware/fpga/simulation/questa/modelsim.ini
 
 # Secondary working copy (not versioned)
 hardware_v2/
+
+# ── Phase D — Platform Designer / Nios V generated artifacts ───────────────
+# Source kept in git: soc/*.qsys, soc/{niosv,jtag,soc}_top.v/.sdc, soc/ecg_core_hw.tcl,
+# soc/core_pll.v, sw/niosv/{main.c,ecg_samples.h}, testbench/tb_niosv_system.v,
+# testbench/run_tb_niosv.do. Everything below is regenerated (Generate HDL / niosv-bsp).
+# Qsys-generated systems (regenerate: open .qsys in Platform Designer -> Generate HDL)
+hardware/fpga/soc/nios_system/
+hardware/fpga/soc/jtag_system/
+hardware/fpga/.qsys_edit/
+hardware/fpga/soc/.qsys_edit/
+hardware/fpga/**/*.sopcinfo
+hardware/fpga/**/*.qsys_edit/
+hardware/fpga/soc/core_pll_sim.f
+# Generated PLL IP (regenerate via IP Catalog; core_pll.v wrapper IS kept)
+hardware/fpga/soc/core_pll/
+hardware/fpga/soc/core_pll_sim/
+hardware/fpga/soc/core_pll.qip
+hardware/fpga/soc/core_pll.cmp
+hardware/fpga/soc/core_pll.ppf
+hardware/fpga/soc/core_pll.sip
+hardware/fpga/soc/core_pll.spd
+hardware/fpga/soc/core_pll.bsf
+# Nios V firmware build (regenerate via niosv-bsp / niosv-app + cmake)
+hardware/fpga/sw/niosv/bsp/
+hardware/fpga/sw/niosv/app/

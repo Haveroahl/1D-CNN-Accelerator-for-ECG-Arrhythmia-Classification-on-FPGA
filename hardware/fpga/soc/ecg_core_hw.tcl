@@ -22,7 +22,7 @@
 #   forcing both into Qsys reset bridges.
 # ============================================================================
 
-package require -exact qsys 21.1
+package require qsys
 
 set_module_property NAME                         ecg_core
 set_module_property DISPLAY_NAME                 "ECG CNN Accelerator"
@@ -36,10 +36,17 @@ set_module_property ELABORATION_CALLBACK         elaborate
 # ── HDL files ────────────────────────────────────────────────────────────
 # Top of the component is ecg_accelerator_top; pull in every sub-module.
 # Paths are relative to this .tcl (soc/ → ../../RTL).
-add_fileset          QUARTUS_SYNTH  QUARTUS_SYNTH  generate_synth
+#
+# Two filesets share the SAME Verilog RTL + .hex:
+#   QUARTUS_SYNTH — for Quartus compile (onboard .sof)
+#   SIM_VERILOG   — for ModelSim/Questa system simulation (Nios V drives the core)
+# The RTL is plain Verilog (synthesisable + simulatable), so both reuse one proc.
+add_fileset          QUARTUS_SYNTH  QUARTUS_SYNTH  add_ecg_files
 set_fileset_property QUARTUS_SYNTH  TOP_LEVEL ecg_accelerator_top
+add_fileset          SIM_VERILOG    SIM_VERILOG    add_ecg_files
+set_fileset_property SIM_VERILOG    TOP_LEVEL ecg_accelerator_top
 
-proc generate_synth { entity } {
+proc add_ecg_files { entity } {
     set rtl ../../RTL
     add_fileset_file ecg_accelerator_top.v VERILOG PATH "$rtl/ecg_accelerator_top.v" TOP_LEVEL_FILE
     add_fileset_file ecg_core.v            VERILOG PATH "$rtl/ecg_core.v"
@@ -51,14 +58,18 @@ proc generate_synth { entity } {
     add_fileset_file cnn_controller.v      VERILOG PATH "$rtl/cnn_controller.v"
     add_fileset_file gap_fc_argmax.v       VERILOG PATH "$rtl/gap_fc_argmax.v"
     # Weight .hex are read by $readmemh in cp_engine. Qsys copies them next to
-    # the generated synth files; Quartus then finds them on the search path.
+    # the generated synth/sim files; the tool then finds them on the search path.
     add_fileset_file conv1_w.hex   OTHER PATH "$rtl/conv1_w.hex"
     add_fileset_file conv2_w.hex   OTHER PATH "$rtl/conv2_w.hex"
     add_fileset_file conv3_w.hex   OTHER PATH "$rtl/conv3_w.hex"
     add_fileset_file conv4_w.hex   OTHER PATH "$rtl/conv4_w.hex"
     add_fileset_file conv_bias.hex OTHER PATH "$rtl/conv_bias.hex"
-    # fc_weights.hex: include if gap_fc_argmax $readmemh's it (check your RTL).
+    # gap_fc_argmax $readmemh's BOTH fc_weights.hex and fc_bias.hex (see
+    # gap_fc_argmax.v:52-53). Both must be in the fileset so Qsys copies them
+    # next to the generated submodules; otherwise synthesis fails with
+    # "can't open Verilog Design File fc_bias.hex".
     add_fileset_file fc_weights.hex OTHER PATH "$rtl/fc_weights.hex"
+    add_fileset_file fc_bias.hex    OTHER PATH "$rtl/fc_bias.hex"
 }
 
 # ── Clock interface ────────────────────────────────────────────────────────
@@ -66,8 +77,11 @@ add_interface           clk clock end
 add_interface_port      clk clk clk Input 1
 
 # ── Reset interface (async active-low) → drives core .rst_n ─────────────────
+# associatedClock left empty: this reset is fully asynchronous (synchronousEdges
+# NONE). Pairing it with a clock makes Qsys warn "No synchronous edges, but has
+# associated clock" — harmless, but cleaner to leave the clock association off.
 add_interface           reset_n reset end
-set_interface_property  reset_n associatedClock clk
+set_interface_property  reset_n associatedClock ""
 set_interface_property  reset_n synchronousEdges NONE
 add_interface_port      reset_n rst_n reset_n Input 1
 

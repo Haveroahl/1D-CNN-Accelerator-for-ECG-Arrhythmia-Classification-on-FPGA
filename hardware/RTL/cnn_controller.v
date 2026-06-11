@@ -42,7 +42,26 @@ module cnn_controller (
     output reg  [2:0]  layer_state,   // exposed for cp_engine MUX and top-level
     output reg         busy,          // 1 while not IDLE/DONE
     output reg         done,          // 1-cycle pulse
-    output reg  [1:0]  result         // latched argmax class index
+    output reg  [1:0]  result,        // latched argmax class index
+
+    // ── Overlap reload support ─────────────────────────────────────────────
+    // isram_free = 1 once Conv1 has finished reading input_sram (state has left
+    // CONV1 into CONV2). From that point Conv2/3/4 read ping_pong only — the
+    // input_sram is no longer accessed by the datapath, so an external master
+    // may write the NEXT window's 2500 samples into it while THIS inference
+    // finishes (overlap load with compute).
+    //
+    // Cleared back to 0 on the next `start` (Conv1 of the new window is about to
+    // read input_sram again). Held through GAP_FC_S/DONE_S so the write window
+    // spans from CONV2 entry up to (and including) the idle DONE_S state.
+    //
+    // SAFETY (single-buffer, enforced by the external driver, NOT by the core):
+    //   - Only write input_sram while isram_free == 1 (avoids read/write
+    //     collision with Conv1 of the current window).
+    //   - Only assert `start` for window N+1 AFTER all 2500 bytes are written
+    //     (single buffer: N+1 overwrites N in place; a premature start would run
+    //     Conv1 on a half-written buffer).
+    output reg         isram_free
 );
 
     // ── FSM state encoding ─────────────────────────────────────────────────
@@ -116,6 +135,7 @@ module cnn_controller (
             fc_step      <= 4'd0;
             argmax_step  <= 2'd0;
             prefetch_cnt <= 3'd0;
+            isram_free   <= 1'b0;
         end else begin
             // Defaults (overridden below)
             srw_rst  <= 1'b0;
@@ -137,6 +157,7 @@ module cnn_controller (
                 // Immediately transition to CONV1.
                 LOAD_INPUT: begin
                     layer_state  <= CONV1;
+                    isram_free   <= 1'b0;   // Conv1 about to read input_sram again
                     in_ch        <= 4'd1;
                     in_len       <= 12'd2500;
                     out_len      <= 12'd500;
@@ -205,6 +226,9 @@ module cnn_controller (
                         case (layer_state)
                             CONV1: begin
                                 layer_state <= CONV2;
+                                // Conv1 done reading input_sram; Conv2+ read
+                                // ping_pong only → input_sram now free to reload.
+                                isram_free  <= 1'b1;
                                 in_ch       <= 4'd4;
                                 in_len      <= 12'd500;
                                 out_len     <= 12'd100;

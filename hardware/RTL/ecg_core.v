@@ -30,7 +30,13 @@ module ecg_core (
     input  wire        start,
     output wire        busy,
     output wire        done,
-    output wire [1:0]  result
+    output wire [1:0]  result,
+
+    // ── Overlap reload status ──────────────────────────────────────────
+    // 1 once Conv1 has released input_sram (state in CONV2..DONE). While high,
+    // an external master may write the next window's samples into input_sram.
+    // See cnn_controller.isram_free for the driver-side safety contract.
+    output wire        isram_free
 );
 
     // ── Controller outputs ─────────────────────────────────────────────
@@ -163,7 +169,8 @@ module ecg_core (
         .layer_state  (ctrl_layer_state),
         .busy         (busy),
         .done         (done),
-        .result       (result)
+        .result       (result),
+        .isram_free   (isram_free)
     );
 
 endmodule

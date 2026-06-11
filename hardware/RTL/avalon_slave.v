@@ -22,7 +22,8 @@ module avalon_slave (
     output reg         start,
     input  wire        busy,
     input  wire        done,
-    input  wire [1:0]  result
+    input  wire [1:0]  result,
+    input  wire        isram_free   // core: input_sram free to reload (CONV2..DONE)
 );
 
     reg done_latched;
@@ -55,7 +56,7 @@ module avalon_slave (
 
             if (avs_read)
                 case (avs_address)
-                    5'h04: avs_readdata <= {30'b0, done_latched, busy};
+                    5'h04: avs_readdata <= {29'b0, isram_free, done_latched, busy};
                     5'h05: avs_readdata <= {30'b0, result};
                     default: avs_readdata <= 32'b0;
                 endcase

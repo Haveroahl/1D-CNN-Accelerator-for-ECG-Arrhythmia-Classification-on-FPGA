@@ -30,6 +30,7 @@ module ecg_accelerator_top (
     wire        busy;
     wire        done;
     wire [1:0]  result;
+    wire        isram_free;   // core: input_sram free to reload (CONV2..DONE)
 
     // ── avalon_slave (bus adapter) ─────────────────────────────────────
     avalon_slave u_avs (
@@ -46,7 +47,8 @@ module ecg_accelerator_top (
         .start        (start),
         .busy         (busy),
         .done         (done),
-        .result       (result)
+        .result       (result),
+        .isram_free   (isram_free)
     );
 
     // ── ecg_core (bus-agnostic accelerator) ────────────────────────────
@@ -59,7 +61,8 @@ module ecg_accelerator_top (
         .start        (start),
         .busy         (busy),
         .done         (done),
-        .result       (result)
+        .result       (result),
+        .isram_free   (isram_free)
     );
 
 endmodule

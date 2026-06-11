@@ -1,0 +1,10 @@
+# -------------------------------------------------------------------------- #
+# Quartus Prime project file — Phase D JTAG-to-Avalon master variant.
+# Open this in Quartus to build the jtag_top revision (PC drives ecg_core over
+# the USB-Blaster TAP via System Console; no CPU).
+# -------------------------------------------------------------------------- #
+
+QUARTUS_VERSION = "25.1"
+
+# Revisions
+PROJECT_REVISION = "jtag_top"

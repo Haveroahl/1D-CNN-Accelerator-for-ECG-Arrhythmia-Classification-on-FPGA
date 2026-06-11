@@ -1,0 +1,33 @@
+# ============================================================================
+# niosv_top.qsf — Phase D variant: Nios V/m RISC-V SoC (CPU + RAM + JTAG UART +
+# ecg_core). Open niosv_top.qpf in Quartus to build THIS variant.
+#
+# Shared device/RTL/hex/settings come from ecg_common.qsf (sourced below).
+# This file adds only what is specific to the Nios V top.
+# ============================================================================
+source ecg_common.qsf
+
+set_global_assignment -name TOP_LEVEL_ENTITY niosv_top
+
+# ── Variant top + constraints ───────────────────────────────────────────────
+set_global_assignment -name SDC_FILE soc/niosv_top.sdc
+set_global_assignment -name VERILOG_FILE soc/niosv_top.v
+
+# ── Qsys system — add ONLY the .qip, NOT the .qsys ──────────────────────────
+# ⚠️ Known Quartus 25.1 bug: adding QSYS_FILE for a Nios V system makes Quartus
+# regenerate the IP and emit 32'b<32-bit> binary literals for RESET_VECTOR /
+# DBG_EXPN_VECTOR that the Lite parser rejects (Error 16950 "decimal constant
+# too large"). The .qip points at the already-generated synthesis files, so no
+# regeneration happens. Ref: Altera Community KB 349129.
+set_global_assignment -name QIP_FILE soc/nios_system/synthesis/nios_system.qip
+
+# ── PLL (50 -> 100 MHz core clock), shared with the JTAG variant ────────────
+set_global_assignment -name QIP_FILE soc/core_pll.qip
+set_global_assignment -name SIP_FILE soc/core_pll.sip
+
+# ── Pins (DE10-Standard, from "DE10 pin.xlsx") ──────────────────────────────
+# Only the 50 MHz osc + KEY0 reset; JTAG uses the dedicated USB-Blaster TAP.
+set_location_assignment PIN_AF14 -to FPGA_CLK1_50
+set_location_assignment PIN_AJ4 -to KEY0_n
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to FPGA_CLK1_50
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to KEY0_n

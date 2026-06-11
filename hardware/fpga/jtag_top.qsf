@@ -1,0 +1,28 @@
+# ============================================================================
+# jtag_top.qsf — Phase D variant: JTAG-to-Avalon master (PC drives ecg_core over
+# the USB-Blaster TAP via System Console). Full-accuracy on-board demo, no CPU.
+# Open jtag_top.qpf in Quartus to build THIS variant.
+#
+# Shared device/RTL/hex/settings come from ecg_common.qsf (sourced below).
+# This file adds only what is specific to the JTAG top.
+# ============================================================================
+source ecg_common.qsf
+
+set_global_assignment -name TOP_LEVEL_ENTITY jtag_top
+
+# ── Variant top + constraints ───────────────────────────────────────────────
+set_global_assignment -name SDC_FILE soc/jtag_top.sdc
+set_global_assignment -name VERILOG_FILE soc/jtag_top.v
+
+# ── Qsys system — add ONLY the .qip, NOT the .qsys (same 25.1 caveat) ───────
+set_global_assignment -name QIP_FILE soc/jtag_system/synthesis/jtag_system.qip
+
+# ── PLL (50 -> 100 MHz core clock), shared with the Nios V variant ──────────
+set_global_assignment -name QIP_FILE soc/core_pll.qip
+set_global_assignment -name SIP_FILE soc/core_pll.sip
+
+# ── Pins (DE10-Standard, from "DE10 pin.xlsx") ──────────────────────────────
+set_location_assignment PIN_AF14 -to FPGA_CLK1_50
+set_location_assignment PIN_AJ4 -to KEY0_n
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to FPGA_CLK1_50
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to KEY0_n

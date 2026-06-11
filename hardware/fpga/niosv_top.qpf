@@ -1,0 +1,9 @@
+# -------------------------------------------------------------------------- #
+# Quartus Prime project file — Phase D Nios V/m SoC variant.
+# Open this in Quartus to build the niosv_top revision (CPU + ecg_core).
+# -------------------------------------------------------------------------- #
+
+QUARTUS_VERSION = "25.1"
+
+# Revisions
+PROJECT_REVISION = "niosv_top"

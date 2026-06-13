@@ -1,0 +1,10 @@
+# -------------------------------------------------------------------------- #
+# Quartus Prime project file — standalone UART variant.
+# Open this in Quartus to build the uart_top revision (uart_wrapper + ecg_core,
+# no Nios V, no HPS — driven from a PC over serial).
+# -------------------------------------------------------------------------- #
+
+QUARTUS_VERSION = "25.1"
+
+# Revisions
+PROJECT_REVISION = "uart_top"

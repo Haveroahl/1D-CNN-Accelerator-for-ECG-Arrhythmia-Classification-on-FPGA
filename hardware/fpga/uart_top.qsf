@@ -1,0 +1,88 @@
+# ============================================================================
+# uart_top.qsf — standalone UART variant: PC serial → uart_wrapper → ecg_core.
+# Open uart_top.qpf in Quartus to build THIS variant (no Nios V, no HPS).
+#
+# Shared device/RTL/hex/settings come from ecg_common.qsf (sourced below).
+# This file adds only the UART-specific RTL, top, SDC and pins.
+#   PC ──RX/TX──► uart_wrapper ──8 wires──► ecg_core   (core reused unchanged)
+# ============================================================================
+source ecg_common.qsf
+
+set_global_assignment -name TOP_LEVEL_ENTITY uart_board_top
+
+# ── UART RTL (new files — not in ecg_common.qsf) ────────────────────────────
+set_global_assignment -name VERILOG_FILE ../RTL/uart_rx.v
+set_global_assignment -name VERILOG_FILE ../RTL/uart_tx.v
+set_global_assignment -name VERILOG_FILE ../RTL/uart_wrapper.v
+set_global_assignment -name VERILOG_FILE ../RTL/ecg_uart_top.v
+set_global_assignment -name VERILOG_FILE soc/uart_board_top.v
+
+# ── Constraints ─────────────────────────────────────────────────────────────
+# 100 MHz SANITY constraint (forces 10 ns onto the 50 MHz osc port). This is a
+# synth/timing-only report — there is NO PLL, so the physical osc is still 50 MHz
+# and this build is NOT board-runnable at 100 MHz. uart_board_top.v keeps
+# CLK_FREQ=50e6 (the real osc) so the UART baud divisor stays correct. For an
+# actual 100 MHz board run, add core_pll.qip (50->100) like the niosv variant.
+set_global_assignment -name SDC_FILE soc/uart_board_top_100mhz.sdc
+
+# ── Pins (DE10-Standard, from "DE10 pin.xlsx") ──────────────────────────────
+# Clock + reset are the same physical pins as the other variants.
+set_location_assignment PIN_AF14 -to FPGA_CLK1_50
+set_location_assignment PIN_AJ4  -to KEY0_n
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to FPGA_CLK1_50
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to KEY0_n
+
+# ── UART pins — GPIO_0 header (DE10-Standard User Manual Table 3-11) ─────────
+# DE10-Standard has no dedicated FPGA-side USB-UART; RXD/TXD route to the 40-pin
+# GPIO_0 header for an external 3.3V USB-serial adapter (FT232/CP2102/CH340).
+#   UART_RXD = GPIO_0[0] = PIN_W15 = header physical pin 1
+#   UART_TXD = GPIO_0[1] = PIN_AK2 = header physical pin 2
+# Adapter wiring (3.3V logic only — do NOT use a 5V/RS-232 adapter):
+#   adapter GND -> header pin 12 (or 30) GND
+#   adapter TX  -> header pin 1  (PIN_W15, UART_RXD)
+#   adapter RX  -> header pin 2  (PIN_AK2, UART_TXD)
+#   leave adapter VCC unconnected.
+# ⚠️ VERIFY PIN_W15/PIN_AK2 against YOUR board's System-CD pin file before
+#    programming — GPIO pins differ between board revisions / sibling boards.
+set_location_assignment PIN_W15 -to UART_RXD
+set_location_assignment PIN_AK2 -to UART_TXD
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_RXD
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to UART_TXD
+
+set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
+
+set_global_assignment -name ORIGINAL_QUARTUS_VERSION 25.1STD.0
+set_global_assignment -name LAST_QUARTUS_VERSION "25.1std.0 Lite Edition"
+set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
+set_global_assignment -name MIN_CORE_JUNCTION_TEMP 0
+set_global_assignment -name MAX_CORE_JUNCTION_TEMP 85
+set_global_assignment -name VHDL_SHOW_LMF_MAPPING_MESSAGES OFF
+set_global_assignment -name VERILOG_SHOW_LMF_MAPPING_MESSAGES OFF
+set_global_assignment -name VERILOG_INPUT_VERSION SYSTEMVERILOG_2005
+set_global_assignment -name ERROR_CHECK_FREQUENCY_DIVISOR 256
+set_global_assignment -name DEVICE 5CSXFC6D6F31C6
+set_global_assignment -name OPTIMIZATION_MODE "HIGH PERFORMANCE EFFORT"
+set_global_assignment -name FAMILY "Cyclone V"
+set_global_assignment -name FITTER_EFFORT "FAST FIT"
+set_global_assignment -name POWER_PRESET_COOLING_SOLUTION "23 MM HEAT SINK WITH 200 LFPM AIRFLOW"
+set_global_assignment -name POWER_BOARD_THERMAL_MODEL "NONE (CONSERVATIVE)"
+set_global_assignment -name HEX_FILE ../RTL/flat_weights.hex
+set_global_assignment -name HEX_FILE ../RTL/fc_weights.hex
+set_global_assignment -name HEX_FILE ../RTL/fc_bias.hex
+set_global_assignment -name HEX_FILE ../RTL/conv4_w.hex
+set_global_assignment -name HEX_FILE ../RTL/conv3_w.hex
+set_global_assignment -name HEX_FILE ../RTL/conv2_w.hex
+set_global_assignment -name HEX_FILE ../RTL/conv1_w.hex
+set_global_assignment -name HEX_FILE ../RTL/conv_bias.hex
+set_global_assignment -name VERILOG_FILE ../RTL/ping_pong_sram.v
+set_global_assignment -name VERILOG_FILE ../RTL/input_sram.v
+set_global_assignment -name VERILOG_FILE ../RTL/gap_fc_argmax.v
+set_global_assignment -name VERILOG_FILE ../RTL/ecg_accelerator_top.v
+set_global_assignment -name VERILOG_FILE ../RTL/ecg_core.v
+set_global_assignment -name VERILOG_FILE ../RTL/cp_engine.v
+set_global_assignment -name VERILOG_FILE ../RTL/cp_block.v
+set_global_assignment -name VERILOG_FILE ../RTL/cnn_controller.v
+set_global_assignment -name VERILOG_FILE ../RTL/avalon_slave.v
+set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
+set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
+set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top

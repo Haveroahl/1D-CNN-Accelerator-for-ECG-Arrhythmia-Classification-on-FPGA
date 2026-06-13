@@ -11,21 +11,20 @@
 #   To run a single sample only, set ::MAX_SAMPLES below.
 #
 # Register map (avalon_slave.v), WORD address -> BYTE address (master_* use bytes):
-#   word 0x00 (byte 0x00) W : sram_din      [7:0]   one ECG byte
-#   word 0x01 (byte 0x04) W : sram_wr_addr  [11:0]  SRAM address
-#   word 0x02 (byte 0x08) W : sram_we       [0]     write-enable pulse
-#   word 0x03 (byte 0x0C) W : start         [0]     start + clear done
-#   word 0x04 (byte 0x10) R : status        {done_latched, busy}
-#   word 0x05 (byte 0x14) R : result        [1:0]   predicted class
+#   word 0x0003 (byte 0x000C) W : start    [0]   start + clear done
+#   word 0x0004 (byte 0x0010) R : status   {isram_free, done_latched, busy}
+#   word 0x0005 (byte 0x0014) R : result   [1:0]   predicted class
+#   DATA WINDOW: word 0x1000..0x19C3 (byte 0x4000..0x6710) W : one word per SRAM
+#       byte (the slave auto-drives din+addr+we from the word's address). A whole
+#       2500-byte sample is shipped in ONE master_write_32 block call instead of
+#       ~7500 per-byte transactions — drops the full set from ~10 h to minutes.
 # ============================================================================
 
 # ---- byte addresses ----
-set A_DIN   0x00
-set A_ADDR  0x04
-set A_WE    0x08
-set A_START 0x0C
-set A_STAT  0x10
-set A_RES   0x14
+set A_START  0x0C
+set A_STAT   0x10
+set A_RES    0x14
+set A_WINDOW 0x4000   ;# word 0x1000 << 2 — base of the 2500-word data window
 
 # ---- config ----
 set ::ECG_FILE    "demo_data/chapman_test_ecg_int8.bin"
@@ -48,22 +47,20 @@ proc open_master {} {
 }
 
 # ----------------------------------------------------------------------------
-# Load one 2500-byte ECG sample into the input SRAM.
-#   For each byte: write din, write addr, pulse we=1.
-#   (we self-clears in HW the cycle after, but we write 1 then move on — the
-#    slave registers sram_we for exactly one clock, matching tb_top behavior.)
+# Load one 2500-byte ECG sample into the input SRAM via the DATA WINDOW.
+#   Build a list of 2500 32-bit words (low byte = ECG sample) and ship them in
+#   ONE master_write_32 block call. System Console increments the byte address
+#   by 4 per element, which matches the word-addressed slave: word 0x1000+i ->
+#   SRAM index i, with the slave auto-driving din+addr+we. This replaces the old
+#   3-writes-per-byte loop (7500 transactions/sample) with a single block write.
 # ----------------------------------------------------------------------------
 proc load_ecg {m bytes} {
-    global A_DIN A_ADDR A_WE
-    set i 0
+    global A_WINDOW
+    set words {}
     foreach b $bytes {
-        # int8 -> unsigned byte for the 8-bit din field
-        set ub [expr {$b & 0xFF}]
-        master_write_32 $m $A_DIN  $ub
-        master_write_32 $m $A_ADDR $i
-        master_write_32 $m $A_WE   1
-        incr i
+        lappend words [expr {$b & 0xFF}]   ;# int8 -> unsigned byte in word[7:0]
     }
+    master_write_32 $m $A_WINDOW $words
 }
 
 # ----------------------------------------------------------------------------

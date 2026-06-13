@@ -1,5 +1,12 @@
-// tb_top.v — Full system test for ecg_accelerator_top
-// 7 test cases covering Avalon-MM interface, FSM states, and end-to-end inference
+// tb_top_window.v — Full system test for ecg_accelerator_top via DATA WINDOW.
+//
+// Identical to tb_top.v EXCEPT the ECG load path: instead of three writes per
+// byte (din @0x00, addr @0x01, we @0x02), each byte is loaded with ONE write to
+// the data window (addr 0x1000+i auto-drives din+addr+we). This is the burst
+// path the JTAG host uses (master_write_memory ships a whole sample in one
+// transaction). Control/status stay on the legacy low registers, so the
+// inference/verify logic is byte-identical to tb_top.v — proving the window
+// path produces the same bit-exact results.
 //
 // Requires:
 //   RTL/conv1_w.hex..conv4_w.hex — INT8 packed 5-tap weights (40b/word)
@@ -15,11 +22,11 @@
 
 `timescale 1ns/1ps
 
-module tb_top;
+module tb_top_window;
 
     // ── DUT signals ───────────────────────────────────────────────────
     reg        clk, rst, rst_n;
-    reg [12:0] avs_address;   // widened to match ecg_accelerator_top (13-bit); tb uses low regs only
+    reg [12:0] avs_address;
     reg        avs_write, avs_read;
     reg [31:0] avs_writedata;
     wire [31:0] avs_readdata;
@@ -150,7 +157,7 @@ module tb_top;
 
     // ── Avalon-MM helpers ─────────────────────────────────────────────
     task avs_wr;
-        input [4:0]  addr;
+        input [12:0] addr;
         input [31:0] data;
         begin
             @(negedge clk);
@@ -163,7 +170,7 @@ module tb_top;
     endtask
 
     task avs_rd;
-        input  [4:0]  addr;
+        input  [12:0] addr;
         output [31:0] data;
         begin
             @(negedge clk);
@@ -182,10 +189,9 @@ module tb_top;
         integer i;
         begin
             $readmemh(filename, ecg);
+            // DATA WINDOW: one write per byte at 0x1000+i (auto din+addr+we).
             for (i = 0; i < 2500; i = i + 1) begin
-                avs_wr(5'h00, {24'h0, ecg[i]});  // DATA_IN
-                avs_wr(5'h01, i[31:0]);            // ADDR_IN
-                avs_wr(5'h02, 32'd1);              // WR_EN
+                avs_wr(13'h1000 + i[12:0], {24'h0, ecg[i]});
             end
             // Allow final write-enable pulse to commit to input_sram (we is
             // a 1-cycle register pulse — needs one more posedge for SRAM to
@@ -200,9 +206,7 @@ module tb_top;
         integer i;
         begin
             for (i = 0; i < 2500; i = i + 1) begin
-                avs_wr(5'h00, {24'h0, val});
-                avs_wr(5'h01, i[31:0]);
-                avs_wr(5'h02, 32'd1);
+                avs_wr(13'h1000 + i[12:0], {24'h0, val});  // DATA WINDOW
             end
         end
     endtask

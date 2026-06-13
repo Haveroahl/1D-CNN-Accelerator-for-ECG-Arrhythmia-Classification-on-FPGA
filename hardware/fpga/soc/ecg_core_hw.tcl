@@ -91,8 +91,12 @@ add_interface_port      reset_h rst reset Input 1
 set_interface_property  reset_h associatedClock clk
 
 # ── Avalon-MM slave ─────────────────────────────────────────────────────────
-# 6 word registers (5-bit address). Read latency = 1 cycle (avs_readdata is
-# registered in avalon_slave). No waitrequest / no burst — simple slave.
+# 13-bit WORD address. Read latency = 1 cycle (avs_readdata is registered in
+# avalon_slave). No waitrequest / no burst — simple slave.
+#   Low registers 0x0000..0x0005 (unchanged 6-register map).
+#   DATA WINDOW   0x1000..0x19C3 (addr[12]=1): one word = one SRAM byte, so a
+#                 single System-Console block write loads a whole 2500-byte
+#                 sample (replaces the ~7500 per-byte JTAG transactions).
 add_interface           avs avalon end
 set_interface_property  avs associatedClock      clk
 set_interface_property  avs associatedReset      reset_n
@@ -101,13 +105,14 @@ set_interface_property  avs readLatency          1
 set_interface_property  avs maximumPendingReadTransactions 0
 set_interface_property  avs explicitAddressSpan  0
 
-add_interface_port      avs avs_address   address    Input  5
+add_interface_port      avs avs_address   address    Input  13
 add_interface_port      avs avs_write     write      Input  1
 add_interface_port      avs avs_read      read       Input  1
 add_interface_port      avs avs_writedata writedata  Input  32
 add_interface_port      avs avs_readdata  readdata   Output 32
 
 proc elaborate {} {
-    # Address span = 2^5 words = 32 words (6 used: 0x00..0x05).
-    set_interface_property avs explicitAddressSpan 32
+    # Address span = 2^13 words = 8192 words. Low regs at 0x0..0x5, the data
+    # window occupies 0x1000..0x19C3 (2500 words). 8192 covers both.
+    set_interface_property avs explicitAddressSpan 8192
 }

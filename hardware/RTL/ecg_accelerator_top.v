@@ -15,7 +15,7 @@ module ecg_accelerator_top (
     input  wire        rst_n,       // async active-low reset (for avalon_slave)
 
     // Avalon-MM Slave port (from HPS Lightweight bridge)
-    input  wire [4:0]  avs_address,
+    input  wire [12:0] avs_address,
     input  wire        avs_write,
     input  wire        avs_read,
     input  wire [31:0] avs_writedata,

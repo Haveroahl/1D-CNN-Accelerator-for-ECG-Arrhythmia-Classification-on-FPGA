@@ -94,10 +94,38 @@ proc read_bytes {path} {
 }
 
 # ----------------------------------------------------------------------------
+# Logging: echo to the System-Console window AND write a timestamped .log file
+# on the PC, so each run is kept separately (e.g. ecg_jtag_20260614_143052.log).
+# The log captures EVERY sample (the Console still prints a thinned subset so it
+# stays readable). Set ::LOG_ENABLE to 0 to disable file logging.
+# ----------------------------------------------------------------------------
+set ::LOG_ENABLE 1
+set ::log_fh     ""
+
+proc log_filename {} {
+    set ts [clock format [clock seconds] -format "%Y%m%d_%H%M%S"]
+    return "ecg_jtag_${ts}.log"
+}
+
+proc logputs {line} {
+    puts $line
+    if {$::log_fh ne ""} {
+        puts $::log_fh $line
+        flush $::log_fh   ;# flush per line so a mid-run channel drop still leaves a usable log
+    }
+}
+
+# ----------------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------------
 proc main {} {
-    global A_RES
+    set log_path ""
+    if {$::LOG_ENABLE} {
+        set log_path [log_filename]
+        set ::log_fh [open $log_path w]
+        logputs "# ECG JTAG run - dataset=$::ECG_FILE"
+    }
+
     set m [open_master]
 
     set ecg_all [read_bytes $::ECG_FILE]
@@ -106,7 +134,7 @@ proc main {} {
     set n_run   $n_total
     if {$::MAX_SAMPLES > 0 && $::MAX_SAMPLES < $n_run} { set n_run $::MAX_SAMPLES }
 
-    puts "Total samples in file: $n_total ; running: $n_run"
+    logputs "Total samples in file: $n_total ; running: $n_run"
     set correct 0
     for {set s 0} {$s < $n_run} {incr s} {
         set off [expr {$s * $::SAMPLE_LEN}]
@@ -115,15 +143,21 @@ proc main {} {
         set pred [run_inference $m]
         set truth [expr {[lindex $lbl_all $s] & 0xFF}]
         if {$pred == $truth} { incr correct }
-        if {$n_run <= 10 || ($s % 50) == 0} {
-            puts [format "sample %4d : pred=%d truth=%d %s" \
+        set line [format "sample %4d : pred=%d truth=%d %s" \
                   $s $pred $truth [expr {$pred==$truth ? "OK" : "X"}]]
-        }
+        # File: every sample. Console: thinned (first 10 + every 50th).
+        if {$::log_fh ne ""} { puts $::log_fh $line; flush $::log_fh }
+        if {$n_run <= 10 || ($s % 50) == 0} { puts $line }
     }
     set acc [expr {100.0 * $correct / $n_run}]
-    puts "----------------------------------------------"
-    puts [format "Accuracy: %d/%d = %.2f%%" $correct $n_run $acc]
+    logputs "----------------------------------------------"
+    logputs [format "Accuracy: %d/%d = %.2f%%" $correct $n_run $acc]
     close_service master $m
+
+    if {$::log_fh ne ""} {
+        close $::log_fh
+        puts "Results written to $log_path"
+    }
 }
 
 main

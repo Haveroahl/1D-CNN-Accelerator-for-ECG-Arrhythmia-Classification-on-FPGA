@@ -2,7 +2,9 @@
 // Conv-Pool Block — 1 output channel
 //
 // Pipeline: MULT(1) → TREE(3) → ACC(IN_CH) → ACC_FINAL(1) → BIAS(1) → RESCALE(2) → RELU(1) → POOL
-// Rescale: (biased + (1 << (nb-1))) >>> nb  (round-half-up, signed) → clamp[-127, 127]
+// Rescale: bias + round_add (1<<(nb-1)) are folded into the ACC init term (a_in==0);
+//          S_bias is a passthrough and S6 is a pure >>> nb. Numerically identical to
+//          (acc + bias + round) >>> nb (round-half-up, signed) → clamp[-127, 127].
 //
 // Interface boundary:
 //   - taps_in[0:4] : 5 tap values from cp_engine mux_s2 (2-cy delayed)
@@ -82,10 +84,18 @@ module cp_block #(
     reg signed [31:0] acc;
     wire signed [31:0] tree_sext = {{12{tree_out[19]}}, tree_out};
 
+    // round_add (round-half-up bias) — declared here because it is now folded into
+    // the accumulator init below. nb is a per-layer constant → Quartus constant-folds.
+    wire signed [31:0] round_add;
+    assign round_add = (nb > 5'd0) ? (32'sd1 << (nb - 5'd1)) : 32'sd0;
+
     always @(posedge clk) begin
         if (rst || pool_rst) acc <= 32'sd0;
         else if (compute_en_in) begin
-            if (a_in == 0) acc <= tree_sext;
+            // Fold per-layer constants (bias + round_add) into the init term so the
+            // downstream S_bias add and S6 round-add drop off the critical chain.
+            // Associative → bit-identical; bias≤139, round_add≤128, acc≤~4.19M ⟹ no signed-32 overflow.
+            if (a_in == 0) acc <= tree_sext + bias_in + round_add;
             else           acc <= acc + tree_sext;
         end
     end
@@ -101,11 +111,13 @@ module cp_block #(
         end else begin
             acc_final_v <= out_valid;
             if (out_valid)
-                acc_final_r <= (a_in == 0) ? tree_sext : (acc + tree_sext);
+                acc_final_r <= (a_in == 0) ? (tree_sext + bias_in + round_add)
+                                           : (acc + tree_sext);
         end
     end
 
-    // ── S_bias: +Bias (registered) ─────────────────────────────────────────
+    // ── S_bias: pure register move (bias folded into acc-init at S5/S5b) ─────
+    // Kept as a pipeline stage (not removed) to preserve depth + valid-bit timing.
     reg signed [31:0] biased;
     reg               bias_valid;
     always @(posedge clk) begin
@@ -115,15 +127,14 @@ module cp_block #(
         end else begin
             bias_valid <= acc_final_v;
             if (acc_final_v)
-                biased <= acc_final_r + bias_in;
+                biased <= acc_final_r;   // bias already in acc_final_r
         end
     end
 
-    // ── S6: Rescale stage-1 (shift + round-half-up) ────────────────────────
-    // round_add precomputed as wire: separates subtract+shift from add+shift
-    wire signed [31:0] round_add;
-    assign round_add = (nb > 5'd0) ? (32'sd1 << (nb - 5'd1)) : 32'sd0;
-
+    // ── S6: Rescale stage-1 (pure arithmetic shift, round-half-up) ──────────
+    // round_add is folded into the accumulator init (S5/S5b, declared above), so
+    // this stage is now just a barrel shift — the +round add no longer sits on the
+    // critical path.
     reg signed [31:0] shifted;
     reg               rescale_v1;
     always @(posedge clk) begin
@@ -133,7 +144,7 @@ module cp_block #(
         end else begin
             rescale_v1 <= bias_valid;
             if (bias_valid)
-                shifted <= (biased + round_add) >>> nb;
+                shifted <= biased >>> nb;
         end
     end
 

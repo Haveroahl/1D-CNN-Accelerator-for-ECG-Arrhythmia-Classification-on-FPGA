@@ -23,7 +23,7 @@ module tb_top_probe;
 
     // ── DUT signals ───────────────────────────────────────────────────
     reg        clk, rst, rst_n;
-    reg [4:0]  avs_address;
+    reg [12:0] avs_address;   // 13-bit to match ecg_accelerator_top port width
     reg        avs_write, avs_read;
     reg [31:0] avs_writedata;
     wire [31:0] avs_readdata;
@@ -40,11 +40,14 @@ module tb_top_probe;
     );
 
     // ── Hierarchical aliases ──────────────────────────────────────────
-    wire [2:0]  layer_state  = u_top.ctrl_layer_state;
-    wire        busy         = u_top.ctrl_busy;
-    wire        ctrl_done    = u_top.ctrl_done;
-    wire [1:0]  result       = u_top.ctrl_result;
-    wire [2:0]  fc_sub_state = u_top.ctrl_fc_sub_state;
+    // After the Phase B core/bus split, the datapath signals live inside the
+    // ecg_core instance: u_top.u_core.*  (was u_top.* in the monolithic top).
+    // busy/done/result are ecg_core output ports (driven by the controller).
+    wire [2:0]  layer_state  = u_top.u_core.ctrl_layer_state;
+    wire        busy         = u_top.u_core.busy;
+    wire        ctrl_done    = u_top.u_core.done;
+    wire [1:0]  result       = u_top.u_core.result;
+    wire [2:0]  fc_sub_state = u_top.u_core.ctrl_fc_sub_state;
 
     // FSM state encoding
     localparam IDLE       = 3'd0;
@@ -83,8 +86,8 @@ module tb_top_probe;
             cy <= cy + 1;
             prev_layer_state  <= layer_state;
             prev_fc_sub_state <= fc_sub_state;
-            prev_gap_step     <= u_top.ctrl_gap_step;
-            prev_argmax_step  <= u_top.ctrl_argmax_step;
+            prev_gap_step     <= u_top.u_core.ctrl_gap_step;
+            prev_argmax_step  <= u_top.u_core.ctrl_argmax_step;
         end
     end
 
@@ -100,11 +103,11 @@ module tb_top_probe;
     always @(posedge clk) begin
         if (trace_en && busy && layer_state != LOAD_INPUT) begin
             $display("[ctrl cy=%0d] state=%0d t=%0d a=%0d se=%b ce=%b padr=%b prefcnt=%0d pong=%0d srw_rst=%b pool_rst=%b cp_en=%02x",
-                cy, layer_state, u_top.ctrl_t, u_top.ctrl_a,
-                u_top.ctrl_shift_en, u_top.ctrl_compute_en,
-                u_top.u_cpe.pad_zero_r, u_top.u_ctrl.prefetch_cnt,
-                u_top.ctrl_pong_addr, u_top.ctrl_srw_rst, u_top.ctrl_pool_rst,
-                u_top.ctrl_cp_en);
+                cy, layer_state, u_top.u_core.ctrl_t, u_top.u_core.ctrl_a,
+                u_top.u_core.ctrl_shift_en, u_top.u_core.ctrl_compute_en,
+                u_top.u_core.u_cpe.pad_zero_r, u_top.u_core.u_ctrl.prefetch_cnt,
+                u_top.u_core.ctrl_pong_addr, u_top.u_core.ctrl_srw_rst, u_top.u_core.ctrl_pool_rst,
+                u_top.u_core.ctrl_cp_en);
         end
     end
 
@@ -114,21 +117,21 @@ module tb_top_probe;
     always @(posedge clk) begin
         if (trace_en && (layer_state == CONV1 || layer_state == CONV2 ||
                          layer_state == CONV3 || layer_state == CONV4)
-                     && u_top.ctrl_shift_en) begin
+                     && u_top.u_core.ctrl_shift_en) begin
             $display("[SRW cy=%0d] ch0=%02x %02x %02x %02x %02x  ch1=%02x %02x %02x %02x %02x  ch2=%02x %02x %02x %02x %02x  ch3=%02x %02x %02x %02x %02x",
                 cy,
-                u_top.u_cpe.srw_flat[0*5+0], u_top.u_cpe.srw_flat[0*5+1], u_top.u_cpe.srw_flat[0*5+2], u_top.u_cpe.srw_flat[0*5+3], u_top.u_cpe.srw_flat[0*5+4],
-                u_top.u_cpe.srw_flat[1*5+0], u_top.u_cpe.srw_flat[1*5+1], u_top.u_cpe.srw_flat[1*5+2], u_top.u_cpe.srw_flat[1*5+3], u_top.u_cpe.srw_flat[1*5+4],
-                u_top.u_cpe.srw_flat[2*5+0], u_top.u_cpe.srw_flat[2*5+1], u_top.u_cpe.srw_flat[2*5+2], u_top.u_cpe.srw_flat[2*5+3], u_top.u_cpe.srw_flat[2*5+4],
-                u_top.u_cpe.srw_flat[3*5+0], u_top.u_cpe.srw_flat[3*5+1], u_top.u_cpe.srw_flat[3*5+2], u_top.u_cpe.srw_flat[3*5+3], u_top.u_cpe.srw_flat[3*5+4]);
+                u_top.u_core.u_cpe.srw_flat[0*5+0], u_top.u_core.u_cpe.srw_flat[0*5+1], u_top.u_core.u_cpe.srw_flat[0*5+2], u_top.u_core.u_cpe.srw_flat[0*5+3], u_top.u_core.u_cpe.srw_flat[0*5+4],
+                u_top.u_core.u_cpe.srw_flat[1*5+0], u_top.u_core.u_cpe.srw_flat[1*5+1], u_top.u_core.u_cpe.srw_flat[1*5+2], u_top.u_core.u_cpe.srw_flat[1*5+3], u_top.u_core.u_cpe.srw_flat[1*5+4],
+                u_top.u_core.u_cpe.srw_flat[2*5+0], u_top.u_core.u_cpe.srw_flat[2*5+1], u_top.u_core.u_cpe.srw_flat[2*5+2], u_top.u_core.u_cpe.srw_flat[2*5+3], u_top.u_core.u_cpe.srw_flat[2*5+4],
+                u_top.u_core.u_cpe.srw_flat[3*5+0], u_top.u_core.u_cpe.srw_flat[3*5+1], u_top.u_core.u_cpe.srw_flat[3*5+2], u_top.u_core.u_cpe.srw_flat[3*5+3], u_top.u_core.u_cpe.srw_flat[3*5+4]);
             // Channels 4..7 (only active for Conv3/4)
             if (layer_state == CONV3 || layer_state == CONV4) begin
                 $display("[SRW cy=%0d] ch4=%02x %02x %02x %02x %02x  ch5=%02x %02x %02x %02x %02x  ch6=%02x %02x %02x %02x %02x  ch7=%02x %02x %02x %02x %02x",
                     cy,
-                    u_top.u_cpe.srw_flat[4*5+0], u_top.u_cpe.srw_flat[4*5+1], u_top.u_cpe.srw_flat[4*5+2], u_top.u_cpe.srw_flat[4*5+3], u_top.u_cpe.srw_flat[4*5+4],
-                    u_top.u_cpe.srw_flat[5*5+0], u_top.u_cpe.srw_flat[5*5+1], u_top.u_cpe.srw_flat[5*5+2], u_top.u_cpe.srw_flat[5*5+3], u_top.u_cpe.srw_flat[5*5+4],
-                    u_top.u_cpe.srw_flat[6*5+0], u_top.u_cpe.srw_flat[6*5+1], u_top.u_cpe.srw_flat[6*5+2], u_top.u_cpe.srw_flat[6*5+3], u_top.u_cpe.srw_flat[6*5+4],
-                    u_top.u_cpe.srw_flat[7*5+0], u_top.u_cpe.srw_flat[7*5+1], u_top.u_cpe.srw_flat[7*5+2], u_top.u_cpe.srw_flat[7*5+3], u_top.u_cpe.srw_flat[7*5+4]);
+                    u_top.u_core.u_cpe.srw_flat[4*5+0], u_top.u_core.u_cpe.srw_flat[4*5+1], u_top.u_core.u_cpe.srw_flat[4*5+2], u_top.u_core.u_cpe.srw_flat[4*5+3], u_top.u_core.u_cpe.srw_flat[4*5+4],
+                    u_top.u_core.u_cpe.srw_flat[5*5+0], u_top.u_core.u_cpe.srw_flat[5*5+1], u_top.u_core.u_cpe.srw_flat[5*5+2], u_top.u_core.u_cpe.srw_flat[5*5+3], u_top.u_core.u_cpe.srw_flat[5*5+4],
+                    u_top.u_core.u_cpe.srw_flat[6*5+0], u_top.u_core.u_cpe.srw_flat[6*5+1], u_top.u_core.u_cpe.srw_flat[6*5+2], u_top.u_core.u_cpe.srw_flat[6*5+3], u_top.u_core.u_cpe.srw_flat[6*5+4],
+                    u_top.u_core.u_cpe.srw_flat[7*5+0], u_top.u_core.u_cpe.srw_flat[7*5+1], u_top.u_core.u_cpe.srw_flat[7*5+2], u_top.u_core.u_cpe.srw_flat[7*5+3], u_top.u_core.u_cpe.srw_flat[7*5+4]);
             end
         end
     end
@@ -140,26 +143,26 @@ module tb_top_probe;
     // doesn't allow generate-for of always blocks with $display easily).
     `define CP_PROBE(OC) \
         always @(posedge clk) begin \
-            if (trace_en && u_top.ctrl_cp_en[OC] && \
-                (u_top.u_cpe.cp_blocks[OC].u_cp.acc_final_v || \
-                 u_top.u_cpe.cp_blocks[OC].u_cp.bias_valid  || \
-                 u_top.u_cpe.cp_blocks[OC].u_cp.rescale_v1  || \
-                 u_top.u_cpe.cp_blocks[OC].u_cp.rescale_v2  || \
-                 u_top.u_cpe.cp_blocks[OC].u_cp.relu_v      || \
-                 u_top.u_cpe.cp_blocks[OC].u_cp.pool_write_r)) begin \
+            if (trace_en && u_top.u_core.ctrl_cp_en[OC] && \
+                (u_top.u_core.u_cpe.cp_blocks[OC].u_cp.acc_final_v || \
+                 u_top.u_core.u_cpe.cp_blocks[OC].u_cp.bias_valid  || \
+                 u_top.u_core.u_cpe.cp_blocks[OC].u_cp.rescale_v1  || \
+                 u_top.u_core.u_cpe.cp_blocks[OC].u_cp.rescale_v2  || \
+                 u_top.u_core.u_cpe.cp_blocks[OC].u_cp.relu_v      || \
+                 u_top.u_core.u_cpe.cp_blocks[OC].u_cp.pool_write_r)) begin \
                 $display("[CP oc=%0d cy=%0d] tree=%08x acc=%08x af(v=%b)=%08x biased(v=%b)=%08x shft(v=%b)=%08x clmp(v=%b)=%02x relu(v=%b)=%02x pcnt=%0d pw=%b max=%02x out=%02x", \
                     OC, cy, \
-                    {{12{u_top.u_cpe.cp_blocks[OC].u_cp.tree_out[19]}}, u_top.u_cpe.cp_blocks[OC].u_cp.tree_out}, \
-                    u_top.u_cpe.cp_blocks[OC].u_cp.acc, \
-                    u_top.u_cpe.cp_blocks[OC].u_cp.acc_final_v, u_top.u_cpe.cp_blocks[OC].u_cp.acc_final_r, \
-                    u_top.u_cpe.cp_blocks[OC].u_cp.bias_valid,  u_top.u_cpe.cp_blocks[OC].u_cp.biased, \
-                    u_top.u_cpe.cp_blocks[OC].u_cp.rescale_v1,  u_top.u_cpe.cp_blocks[OC].u_cp.shifted, \
-                    u_top.u_cpe.cp_blocks[OC].u_cp.rescale_v2,  u_top.u_cpe.cp_blocks[OC].u_cp.clamped, \
-                    u_top.u_cpe.cp_blocks[OC].u_cp.relu_v,      u_top.u_cpe.cp_blocks[OC].u_cp.relu_out, \
-                    u_top.u_cpe.cp_blocks[OC].u_cp.pool_cnt, \
-                    u_top.u_cpe.cp_blocks[OC].u_cp.pool_write_r, \
-                    u_top.u_cpe.cp_blocks[OC].u_cp.max_reg, \
-                    u_top.u_cpe.cp_blocks[OC].u_cp.pool_out); \
+                    {{12{u_top.u_core.u_cpe.cp_blocks[OC].u_cp.tree_out[19]}}, u_top.u_core.u_cpe.cp_blocks[OC].u_cp.tree_out}, \
+                    u_top.u_core.u_cpe.cp_blocks[OC].u_cp.acc, \
+                    u_top.u_core.u_cpe.cp_blocks[OC].u_cp.acc_final_v, u_top.u_core.u_cpe.cp_blocks[OC].u_cp.acc_final_r, \
+                    u_top.u_core.u_cpe.cp_blocks[OC].u_cp.bias_valid,  u_top.u_core.u_cpe.cp_blocks[OC].u_cp.biased, \
+                    u_top.u_core.u_cpe.cp_blocks[OC].u_cp.rescale_v1,  u_top.u_core.u_cpe.cp_blocks[OC].u_cp.shifted, \
+                    u_top.u_core.u_cpe.cp_blocks[OC].u_cp.rescale_v2,  u_top.u_core.u_cpe.cp_blocks[OC].u_cp.clamped, \
+                    u_top.u_core.u_cpe.cp_blocks[OC].u_cp.relu_v,      u_top.u_core.u_cpe.cp_blocks[OC].u_cp.relu_out, \
+                    u_top.u_core.u_cpe.cp_blocks[OC].u_cp.pool_cnt, \
+                    u_top.u_core.u_cpe.cp_blocks[OC].u_cp.pool_write_r, \
+                    u_top.u_core.u_cpe.cp_blocks[OC].u_cp.max_reg, \
+                    u_top.u_core.u_cpe.cp_blocks[OC].u_cp.pool_out); \
             end \
         end
 
@@ -176,24 +179,24 @@ module tb_top_probe;
     always @(posedge clk) begin
         if (trace_en && layer_state == GAP_FC_S && fc_sub_state == GAP_S) begin
             $display("[GAP step=%0d cy=%0d] rd_addr=%0d ping_dout=%02x %02x %02x %02x %02x %02x %02x %02x  acc[0..7]=%03x %03x %03x %03x %03x %03x %03x %03x",
-                u_top.ctrl_gap_step, cy, u_top.u_gfa.gap_rd_addr,
-                u_top.pp_dout[0*8 +: 8], u_top.pp_dout[1*8 +: 8],
-                u_top.pp_dout[2*8 +: 8], u_top.pp_dout[3*8 +: 8],
-                u_top.pp_dout[4*8 +: 8], u_top.pp_dout[5*8 +: 8],
-                u_top.pp_dout[6*8 +: 8], u_top.pp_dout[7*8 +: 8],
-                u_top.u_gfa.gap_acc[0]&10'h3FF, u_top.u_gfa.gap_acc[1]&10'h3FF,
-                u_top.u_gfa.gap_acc[2]&10'h3FF, u_top.u_gfa.gap_acc[3]&10'h3FF,
-                u_top.u_gfa.gap_acc[4]&10'h3FF, u_top.u_gfa.gap_acc[5]&10'h3FF,
-                u_top.u_gfa.gap_acc[6]&10'h3FF, u_top.u_gfa.gap_acc[7]&10'h3FF);
+                u_top.u_core.ctrl_gap_step, cy, u_top.u_core.u_gfa.gap_rd_addr,
+                u_top.u_core.pp_dout[0*8 +: 8], u_top.u_core.pp_dout[1*8 +: 8],
+                u_top.u_core.pp_dout[2*8 +: 8], u_top.u_core.pp_dout[3*8 +: 8],
+                u_top.u_core.pp_dout[4*8 +: 8], u_top.u_core.pp_dout[5*8 +: 8],
+                u_top.u_core.pp_dout[6*8 +: 8], u_top.u_core.pp_dout[7*8 +: 8],
+                u_top.u_core.u_gfa.gap_acc[0]&10'h3FF, u_top.u_core.u_gfa.gap_acc[1]&10'h3FF,
+                u_top.u_core.u_gfa.gap_acc[2]&10'h3FF, u_top.u_core.u_gfa.gap_acc[3]&10'h3FF,
+                u_top.u_core.u_gfa.gap_acc[4]&10'h3FF, u_top.u_core.u_gfa.gap_acc[5]&10'h3FF,
+                u_top.u_core.u_gfa.gap_acc[6]&10'h3FF, u_top.u_core.u_gfa.gap_acc[7]&10'h3FF);
         end
         // GAP DONE: gap_reg latched at gap_step=5, visible 1cy later when fc_sub_state→FC_S
         if (trace_en && prev_gap_step == 4'd5 && fc_sub_state == FC_S && prev_fc_sub_state == GAP_S) begin
             $display("[GAP DONE cy=%0d] gap_reg[0..7] = %02x %02x %02x %02x %02x %02x %02x %02x (= floor(sum/4))",
                 cy,
-                u_top.u_gfa.gap_reg[0], u_top.u_gfa.gap_reg[1],
-                u_top.u_gfa.gap_reg[2], u_top.u_gfa.gap_reg[3],
-                u_top.u_gfa.gap_reg[4], u_top.u_gfa.gap_reg[5],
-                u_top.u_gfa.gap_reg[6], u_top.u_gfa.gap_reg[7]);
+                u_top.u_core.u_gfa.gap_reg[0], u_top.u_core.u_gfa.gap_reg[1],
+                u_top.u_core.u_gfa.gap_reg[2], u_top.u_core.u_gfa.gap_reg[3],
+                u_top.u_core.u_gfa.gap_reg[4], u_top.u_core.u_gfa.gap_reg[5],
+                u_top.u_core.u_gfa.gap_reg[6], u_top.u_core.u_gfa.gap_reg[7]);
         end
     end
 
@@ -201,27 +204,27 @@ module tb_top_probe;
     always @(posedge clk) begin
         if (trace_en && layer_state == GAP_FC_S && fc_sub_state == FC_S) begin
             $display("[FC step=%0d cy=%0d] gap_pipe=%02x w_idx=%0d pv=%b prod[0..3]=%04x %04x %04x %04x  acc[0..3]=%08x %08x %08x %08x",
-                u_top.ctrl_fc_step, cy,
-                u_top.u_gfa.fc_gap_pipe, u_top.u_gfa.fc_w_idx, u_top.u_gfa.prod_valid,
-                u_top.u_gfa.fc_prod[0]&16'hFFFF, u_top.u_gfa.fc_prod[1]&16'hFFFF,
-                u_top.u_gfa.fc_prod[2]&16'hFFFF, u_top.u_gfa.fc_prod[3]&16'hFFFF,
-                u_top.u_gfa.fc_acc[0], u_top.u_gfa.fc_acc[1],
-                u_top.u_gfa.fc_acc[2], u_top.u_gfa.fc_acc[3]);
+                u_top.u_core.ctrl_fc_step, cy,
+                u_top.u_core.u_gfa.fc_gap_pipe, u_top.u_core.u_gfa.fc_w_idx, u_top.u_core.u_gfa.prod_valid,
+                u_top.u_core.u_gfa.fc_prod[0]&16'hFFFF, u_top.u_core.u_gfa.fc_prod[1]&16'hFFFF,
+                u_top.u_core.u_gfa.fc_prod[2]&16'hFFFF, u_top.u_core.u_gfa.fc_prod[3]&16'hFFFF,
+                u_top.u_core.u_gfa.fc_acc[0], u_top.u_core.u_gfa.fc_acc[1],
+                u_top.u_core.u_gfa.fc_acc[2], u_top.u_core.u_gfa.fc_acc[3]);
         end
         if (trace_en && layer_state == GAP_FC_S && fc_sub_state == FC_FLUSH) begin
             $display("[FC FLUSH cy=%0d] (drain last prod) acc[0..3] = %08x %08x %08x %08x",
                 cy,
-                u_top.u_gfa.fc_acc[0], u_top.u_gfa.fc_acc[1],
-                u_top.u_gfa.fc_acc[2], u_top.u_gfa.fc_acc[3]);
+                u_top.u_core.u_gfa.fc_acc[0], u_top.u_core.u_gfa.fc_acc[1],
+                u_top.u_core.u_gfa.fc_acc[2], u_top.u_core.u_gfa.fc_acc[3]);
         end
         // FC final logits (entering ARGMAX)
         if (trace_en && prev_fc_sub_state == FC_FLUSH && fc_sub_state == ARGMAX_S) begin
             $display("[FC DONE cy=%0d] final logits = %08x %08x %08x %08x  (signed: %0d %0d %0d %0d)",
                 cy,
-                u_top.u_gfa.fc_acc[0], u_top.u_gfa.fc_acc[1],
-                u_top.u_gfa.fc_acc[2], u_top.u_gfa.fc_acc[3],
-                $signed(u_top.u_gfa.fc_acc[0]), $signed(u_top.u_gfa.fc_acc[1]),
-                $signed(u_top.u_gfa.fc_acc[2]), $signed(u_top.u_gfa.fc_acc[3]));
+                u_top.u_core.u_gfa.fc_acc[0], u_top.u_core.u_gfa.fc_acc[1],
+                u_top.u_core.u_gfa.fc_acc[2], u_top.u_core.u_gfa.fc_acc[3],
+                $signed(u_top.u_core.u_gfa.fc_acc[0]), $signed(u_top.u_core.u_gfa.fc_acc[1]),
+                $signed(u_top.u_core.u_gfa.fc_acc[2]), $signed(u_top.u_core.u_gfa.fc_acc[3]));
         end
     end
 
@@ -229,14 +232,14 @@ module tb_top_probe;
     always @(posedge clk) begin
         if (trace_en && layer_state == GAP_FC_S && fc_sub_state == ARGMAX_S) begin
             $display("[ARG step=%0d cy=%0d] cmp fc_acc[%0d]=%0d vs max=%0d  → cur_idx=%0d",
-                u_top.ctrl_argmax_step, cy, u_top.ctrl_argmax_step,
-                $signed(u_top.u_gfa.fc_acc[u_top.ctrl_argmax_step]),
-                $signed(u_top.u_gfa.argmax_max),
-                u_top.u_gfa.argmax_idx);
+                u_top.u_core.ctrl_argmax_step, cy, u_top.u_core.ctrl_argmax_step,
+                $signed(u_top.u_core.u_gfa.fc_acc[u_top.u_core.ctrl_argmax_step]),
+                $signed(u_top.u_core.u_gfa.argmax_max),
+                u_top.u_core.u_gfa.argmax_idx);
         end
         if (trace_en && prev_fc_sub_state == ARGMAX_S && fc_sub_state == DONE_SUB) begin
             $display("[ARG DONE cy=%0d] argmax_idx = %0d (class)  max_logit = %0d",
-                cy, u_top.u_gfa.argmax_idx, $signed(u_top.u_gfa.argmax_max));
+                cy, u_top.u_core.u_gfa.argmax_idx, $signed(u_top.u_core.u_gfa.argmax_max));
         end
     end
 
@@ -305,7 +308,7 @@ module tb_top_probe;
     // ───────────────────────────────────────────────────────────────────
 
     task avs_wr;
-        input [4:0]  addr;
+        input [12:0] addr;
         input [31:0] data;
         begin
             @(negedge clk);
@@ -318,7 +321,7 @@ module tb_top_probe;
     endtask
 
     task avs_rd;
-        input  [4:0]  addr;
+        input  [12:0] addr;
         output [31:0] data;
         begin
             @(negedge clk);
@@ -401,7 +404,7 @@ module tb_top_probe;
         begin
             mismatches = 0; first_bad = -1; first_rtl = 0; first_gold = 0;
             for (i = 0; i < 2500; i = i + 1) begin
-                rtl_v  = $signed({u_top.u_isram.mem[i][7], u_top.u_isram.mem[i]});
+                rtl_v  = $signed({u_top.u_core.u_isram.mem[i][7], u_top.u_core.u_isram.mem[i]});
                 gold_v = $signed({gold_input[i][7], gold_input[i]});
                 diff = rtl_v - gold_v;
                 if (diff > 10 || diff < -10) begin
@@ -428,14 +431,14 @@ module tb_top_probe;
         input integer pos;
         begin
             case (ch)
-                0: read_mem_a = u_top.u_pp.mem_a_ch0[pos];
-                1: read_mem_a = u_top.u_pp.mem_a_ch1[pos];
-                2: read_mem_a = u_top.u_pp.mem_a_ch2[pos];
-                3: read_mem_a = u_top.u_pp.mem_a_ch3[pos];
-                4: read_mem_a = u_top.u_pp.mem_a_ch4[pos];
-                5: read_mem_a = u_top.u_pp.mem_a_ch5[pos];
-                6: read_mem_a = u_top.u_pp.mem_a_ch6[pos];
-                7: read_mem_a = u_top.u_pp.mem_a_ch7[pos];
+                0: read_mem_a = u_top.u_core.u_pp.mem_a_ch0[pos];
+                1: read_mem_a = u_top.u_core.u_pp.mem_a_ch1[pos];
+                2: read_mem_a = u_top.u_core.u_pp.mem_a_ch2[pos];
+                3: read_mem_a = u_top.u_core.u_pp.mem_a_ch3[pos];
+                4: read_mem_a = u_top.u_core.u_pp.mem_a_ch4[pos];
+                5: read_mem_a = u_top.u_core.u_pp.mem_a_ch5[pos];
+                6: read_mem_a = u_top.u_core.u_pp.mem_a_ch6[pos];
+                7: read_mem_a = u_top.u_core.u_pp.mem_a_ch7[pos];
                 default: read_mem_a = 8'h00;
             endcase
         end
@@ -446,14 +449,14 @@ module tb_top_probe;
         input integer pos;
         begin
             case (ch)
-                0: read_mem_b = u_top.u_pp.mem_b_ch0[pos];
-                1: read_mem_b = u_top.u_pp.mem_b_ch1[pos];
-                2: read_mem_b = u_top.u_pp.mem_b_ch2[pos];
-                3: read_mem_b = u_top.u_pp.mem_b_ch3[pos];
-                4: read_mem_b = u_top.u_pp.mem_b_ch4[pos];
-                5: read_mem_b = u_top.u_pp.mem_b_ch5[pos];
-                6: read_mem_b = u_top.u_pp.mem_b_ch6[pos];
-                7: read_mem_b = u_top.u_pp.mem_b_ch7[pos];
+                0: read_mem_b = u_top.u_core.u_pp.mem_b_ch0[pos];
+                1: read_mem_b = u_top.u_core.u_pp.mem_b_ch1[pos];
+                2: read_mem_b = u_top.u_core.u_pp.mem_b_ch2[pos];
+                3: read_mem_b = u_top.u_core.u_pp.mem_b_ch3[pos];
+                4: read_mem_b = u_top.u_core.u_pp.mem_b_ch4[pos];
+                5: read_mem_b = u_top.u_core.u_pp.mem_b_ch5[pos];
+                6: read_mem_b = u_top.u_core.u_pp.mem_b_ch6[pos];
+                7: read_mem_b = u_top.u_core.u_pp.mem_b_ch7[pos];
                 default: read_mem_b = 8'h00;
             endcase
         end
@@ -602,7 +605,7 @@ module tb_top_probe;
         begin
             mismatches = 0; first_bad = -1; first_rtl = 0; first_gold = 0;
             for (i = 0; i < 8; i = i + 1) begin
-                rtl_v  = $signed(u_top.u_gfa.gap_reg[i]);
+                rtl_v  = $signed(u_top.u_core.u_gfa.gap_reg[i]);
                 gold_v = $signed({gold_gap[i][7], gold_gap[i]});
                 diff = rtl_v - gold_v;
                 if (diff > 10 || diff < -10) begin
@@ -630,7 +633,7 @@ module tb_top_probe;
         begin
             mismatches = 0; first_bad = -1; first_rtl = 0; first_gold = 0;
             for (i = 0; i < 4; i = i + 1) begin
-                rtl_v  = $signed(u_top.u_gfa.fc_acc[i]);
+                rtl_v  = $signed(u_top.u_core.u_gfa.fc_acc[i]);
                 gold_v = $signed(gold_logits[i]);
                 diff = rtl_v - gold_v;
                 if (diff > 10 || diff < -10) begin

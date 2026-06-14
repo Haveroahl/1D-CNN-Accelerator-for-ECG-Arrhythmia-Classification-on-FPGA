@@ -333,20 +333,20 @@ module tb_cp_block;
         check_val(-8'sd50, "TC09_relu_off_negative");
 
         // ── TC10: MaxPool — max at first [100,50,30,20,10] ─────────────
-        // Feed 5 pixels with decreasing bias_in; pool_out should be 100
-        // Bias drive shifted by 1 iter: RTL S_bias samples bias_in 1 cy after out_valid,
-        // so bias for pixel#N must be set during the cycle of pixel#N+1's out_valid.
+        // Feed 5 pixels with decreasing bias_in; pool_out should be 100.
+        // Bias is now folded into the accumulator init (a_in==0 cycle), so bias
+        // for pixel#N is sampled DURING pixel#N's own out_valid cycle — set bias
+        // before that cycle's edge (1 cy earlier than the old S_bias contract).
         apply_reset;
         in_ch = 4'd1; nb = 5'd0; relu_en = 0;
         taps_in = 40'h0;
         w       = 40'h0;
         compute_en_in = 1; a_in = 0;
-        bias_in = 32'sd0;   @(posedge clk); #1;  // pixel #0 out_valid
-        bias_in = 32'sd100; @(posedge clk); #1;  // pixel #1; samples bias=100 for #0
-        bias_in = 32'sd50;  @(posedge clk); #1;  // pixel #2; bias=50  for #1
-        bias_in = 32'sd30;  @(posedge clk); #1;  // pixel #3; bias=30  for #2
-        bias_in = 32'sd20;  @(posedge clk); #1;  // pixel #4; bias=20  for #3
-        bias_in = 32'sd10;                        // hold bias=10 for #4
+        bias_in = 32'sd100; @(posedge clk); #1;  // pixel #0; bias=100 for #0
+        bias_in = 32'sd50;  @(posedge clk); #1;  // pixel #1; bias=50  for #1
+        bias_in = 32'sd30;  @(posedge clk); #1;  // pixel #2; bias=30  for #2
+        bias_in = 32'sd20;  @(posedge clk); #1;  // pixel #3; bias=20  for #3
+        bias_in = 32'sd10;  @(posedge clk); #1;  // pixel #4; bias=10  for #4
         drain_pipeline(14);                       // flush; no new out_valid (a_in=1)
         compute_en_in = 0;
         wait_pool_write(success);
@@ -358,12 +358,11 @@ module tb_cp_block;
         taps_in = 40'h0;
         w       = 40'h0;
         compute_en_in = 1; a_in = 0;
-        bias_in = 32'sd0;   @(posedge clk); #1;  // pixel #0 out_valid
-        bias_in = 32'sd10;  @(posedge clk); #1;  // bias=10  for #0
-        bias_in = 32'sd20;  @(posedge clk); #1;  // bias=20  for #1
-        bias_in = 32'sd30;  @(posedge clk); #1;  // bias=30  for #2
-        bias_in = 32'sd50;  @(posedge clk); #1;  // bias=50  for #3
-        bias_in = 32'sd100;                       // hold bias=100 for #4
+        bias_in = 32'sd10;  @(posedge clk); #1;  // pixel #0; bias=10  for #0
+        bias_in = 32'sd20;  @(posedge clk); #1;  // pixel #1; bias=20  for #1
+        bias_in = 32'sd30;  @(posedge clk); #1;  // pixel #2; bias=30  for #2
+        bias_in = 32'sd50;  @(posedge clk); #1;  // pixel #3; bias=50  for #3
+        bias_in = 32'sd100; @(posedge clk); #1;  // pixel #4; bias=100 for #4
         drain_pipeline(14);
         compute_en_in = 0;
         wait_pool_write(success);

@@ -19,7 +19,7 @@ module tb_top;
 
     // ── DUT signals ───────────────────────────────────────────────────
     reg        clk, rst, rst_n;
-    reg [12:0] avs_address;   // widened to match ecg_accelerator_top (13-bit); tb uses low regs only
+    reg [13:0] avs_address;   // widened to match ecg_accelerator_top (14-bit); tb uses low regs only
     reg        avs_write, avs_read;
     reg [31:0] avs_writedata;
     wire [31:0] avs_readdata;

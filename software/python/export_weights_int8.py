@@ -206,6 +206,37 @@ def export_rtl_hex(w_int8_ckpt: dict, b_float_ckpt: dict, nb_dict: dict,
             f.write(f"{v & 0xFFFFFFFF:08X}\n")
     print(f"  fc_bias.hex        (4 INT32 entries, scaled 2^{fc_shift}=2^w_shift[fc]: {fc_b_entries})")
 
+    # ---- w_ram0..7.hex: per-oc M10K init (Phase B01 weight RAM) ----
+    # Re-pack the 4 conv ROMs into 8 per-oc RAMs of 17 words: word = layer_base+ic.
+    #   Conv1 base=0 (ic=0)  Conv2 base=1 (ic0..3)  Conv3 base=5  Conv4 base=9
+    # Byte-identical 40-bit entries — just moved into (oc, word) slots.
+    export_weight_ram(w_int8_ckpt, output_dir)
+
+
+def export_weight_ram(w_int8_ckpt: dict, output_dir: str):
+    """Write w_ram0..7.hex (8 per-oc RAMs × 17 words × 40-bit) for cp_engine.v."""
+    N_WORDS, N_TAPS = 17, 5
+    # (name, n_oc, n_ic, layer_base)
+    LAYERS = [('conv1', 4, 1, 0), ('conv2', 4, 4, 1),
+              ('conv3', 8, 4, 5), ('conv4', 8, 8, 9)]
+    ram = [[0] * N_WORDS for _ in range(8)]
+    for lname, n_oc, n_ic, base in LAYERS:
+        if lname not in w_int8_ckpt:
+            continue
+        w = np.array(w_int8_ckpt[lname], dtype=np.int32)  # (out_ch, in_ch, K)
+        for oc in range(n_oc):
+            for ic in range(n_ic):
+                if oc < w.shape[0] and ic < w.shape[1]:
+                    word = 0
+                    for tap in range(N_TAPS):
+                        word |= (int(w[oc, ic, tap]) & 0xFF) << (tap * 8)
+                    ram[oc][base + ic] = word
+    for oc in range(8):
+        with open(os.path.join(output_dir, f'w_ram{oc}.hex'), 'w') as f:
+            for word in ram[oc]:
+                f.write(f"{word & 0xFFFFFFFFFF:010X}\n")
+    print(f"  w_ram0..7.hex      (8 per-oc RAMs × {N_WORDS} words × 40b, Phase B01)")
+
 
 # ============================================================
 #  Full export pipeline

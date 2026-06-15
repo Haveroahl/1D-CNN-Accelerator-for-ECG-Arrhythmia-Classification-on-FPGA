@@ -13,6 +13,7 @@
 # Register map (avalon_slave.v), WORD address -> BYTE address (master_* use bytes):
 #   word 0x0003 (byte 0x000C) W : start    [0]   start + clear done
 #   word 0x0004 (byte 0x0010) R : status   {isram_free, done_latched, busy}
+#                                 bit0=busy, bit1=done_latched, bit2=isram_free
 #   word 0x0005 (byte 0x0014) R : result   [1:0]   predicted class
 #   DATA WINDOW: word 0x1000..0x19C3 (byte 0x4000..0x6710) W : one word per SRAM
 #       byte (the slave auto-drives din+addr+we from the word's address). A whole
@@ -25,6 +26,18 @@ set A_START  0x0C
 set A_STAT   0x10
 set A_RES    0x14
 set A_WINDOW 0x4000   ;# word 0x1000 << 2 — base of the 2500-word data window
+
+# Weight window (avalon_slave.v, addr[13]=1). Byte = word << 2.
+#   conv weight : word 0x2000 | (ramword<<4) | (oc<<1) | hi   -> byte 0x8000 ...
+#   conv bias   : word 0x2800 | idx                            -> byte 0xA000 ...
+#   FC w/bias   : word 0x3000 | addr ([5]=1 -> bias)           -> byte 0xC000 ...
+set A_WCONV  0x8000   ;# (0x2000 << 2) conv weight base
+set A_WBIAS  0xA000   ;# (0x2800 << 2) conv bias base
+set A_WFC    0xC000   ;# (0x3000 << 2) FC weight base
+set A_WFCB   0xC080   ;# (0x3020 << 2) FC bias base (fcw_addr[5]=1)
+
+# ---- weight config ----
+set ::WEIGHT_DIR  "demo_data/chapman_weights"   ;# set to ptbxl_weights for C3 cross-dataset
 
 # ---- config ----
 set ::ECG_FILE    "demo_data/chapman_test_ecg_int8.bin"
@@ -54,6 +67,65 @@ proc open_master {} {
 #   SRAM index i, with the slave auto-driving din+addr+we. This replaces the old
 #   3-writes-per-byte loop (7500 transactions/sample) with a single block write.
 # ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Read a $readmemh hex file (one hex word per line, '//' comments tolerated) into
+# a Tcl list of integers.
+# ----------------------------------------------------------------------------
+proc read_hex_file {path} {
+    set f [open $path r]
+    set vals {}
+    while {[gets $f line] >= 0} {
+        set line [string trim $line]
+        if {$line eq "" || [string match "//*" $line]} { continue }
+        lappend vals [expr {"0x$line"}]
+    }
+    close $f
+    return $vals
+}
+
+# ----------------------------------------------------------------------------
+# Load ALL weights from $WEIGHT_DIR into the accelerator over the weight window.
+# Runtime weight reload (Phase B01): the SAME bitstream runs Chapman or PTB-XL
+# weights — point WEIGHT_DIR at the desired set before calling.
+#
+#   conv : 8 per-oc RAMs (w_ram0..7.hex), 17 words × 40 bit. Each 40-bit entry =
+#          two 32-bit writes (lo bits[31:0], hi bits[39:32]). The slave assembles
+#          them and writes the 40-bit RAM word on the hi half. Linear word-address
+#          order (word-major, oc, lo/hi) matches the slave's offset decode.
+#   bias : conv_bias.hex (32 × INT32), one write each.
+#   FC   : fc_weights.hex (32 × INT8) + fc_bias.hex (4 × INT32, fcw_addr[5]=1).
+# ----------------------------------------------------------------------------
+proc load_weights {m} {
+    global A_WCONV A_WBIAS A_WFC A_WFCB
+    set dir $::WEIGHT_DIR
+
+    # --- conv weights: read 8 per-oc files (each 17 × 40-bit hex) ---
+    for {set oc 0} {$oc < 8} {incr oc} {
+        set ram($oc) [read_hex_file "$dir/w_ram$oc.hex"]
+    }
+    # Build one block in linear offset order: for each ramword, for each oc, lo then hi.
+    set conv_words {}
+    for {set w 0} {$w < 17} {incr w} {
+        for {set oc 0} {$oc < 8} {incr oc} {
+            set e [lindex $ram($oc) $w]
+            lappend conv_words [expr {$e & 0xFFFFFFFF}]            ;# lo (hi bit=0)
+            lappend conv_words [expr {($e >> 32) & 0xFF}]          ;# hi (hi bit=1)
+        }
+    }
+    master_write_32 $m $A_WCONV $conv_words
+
+    # --- conv bias (32 × INT32) ---
+    master_write_32 $m $A_WBIAS [read_hex_file "$dir/conv_bias.hex"]
+
+    # --- FC weights (32 × INT8) ---
+    master_write_32 $m $A_WFC [read_hex_file "$dir/fc_weights.hex"]
+
+    # --- FC bias (4 × INT32) at fcw_addr[5]=1 region ---
+    master_write_32 $m $A_WFCB [read_hex_file "$dir/fc_bias.hex"]
+
+    puts "Loaded weights from $dir ([llength $conv_words] conv words + bias + FC)"
+}
+
 proc load_ecg {m bytes} {
     global A_WINDOW
     set words {}
@@ -64,22 +136,34 @@ proc load_ecg {m bytes} {
 }
 
 # ----------------------------------------------------------------------------
-# Pulse start, poll done, return predicted class.
+# Status helpers. status = {isram_free(bit2), done_latched(bit1), busy(bit0)}.
 # ----------------------------------------------------------------------------
-proc run_inference {m} {
-    global A_START A_STAT A_RES
-    master_write_32 $m $A_START 1
-    # poll done_latched (bit 1 of status)
+proc read_status {m} {
+    global A_STAT
+    return [expr {[lindex [master_read_32 $m $A_STAT 1] 0]}]
+}
+
+# Block until ALL status bits in `mask` are set
+# (bit0=busy, bit1=done_latched, bit2=isram_free).
+proc poll_status {m mask {what "status"}} {
     set tries 0
     while {1} {
-        set st [master_read_32 $m $A_STAT 1]
-        set st [expr {[lindex $st 0]}]
-        if {($st & 0x2) != 0} break
+        if {([read_status $m] & $mask) == $mask} break
         incr tries
-        if {$tries > 100000} { error "Timeout waiting for done" }
+        if {$tries > 100000} { error "Timeout waiting for $what" }
     }
-    set res [master_read_32 $m $A_RES 1]
-    return [expr {[lindex $res 0] & 0x3}]
+}
+
+# Pulse start for one window (kicks off Conv1 on the current input_sram contents).
+proc start_inference {m} {
+    global A_START
+    master_write_32 $m $A_START 1
+}
+
+# Read the latched argmax class (call only after done_latched is set).
+proc read_result {m} {
+    global A_RES
+    return [expr {[lindex [master_read_32 $m $A_RES 1] 0] & 0x3}]
 }
 
 # ----------------------------------------------------------------------------
@@ -91,6 +175,12 @@ proc read_bytes {path} {
     close $f
     binary scan $data c* signed   ;# signed int8 list
     return $signed
+}
+
+# Extract sample s (SAMPLE_LEN bytes) from the flat byte list.
+proc get_sample {ecg_all s} {
+    set off [expr {$s * $::SAMPLE_LEN}]
+    return [lrange $ecg_all $off [expr {$off + $::SAMPLE_LEN - 1}]]
 }
 
 # ----------------------------------------------------------------------------
@@ -128,19 +218,45 @@ proc main {} {
 
     set m [open_master]
 
+    # Phase B01: load weights from the PC over the bus before any inference.
+    load_weights $m
+
     set ecg_all [read_bytes $::ECG_FILE]
     set lbl_all [read_bytes $::LBL_FILE]
     set n_total [expr {[llength $ecg_all] / $::SAMPLE_LEN}]
     set n_run   $n_total
     if {$::MAX_SAMPLES > 0 && $::MAX_SAMPLES < $n_run} { set n_run $::MAX_SAMPLES }
 
-    logputs "Total samples in file: $n_total ; running: $n_run"
+    logputs "Total samples in file: $n_total ; running: $n_run (overlap reload)"
     set correct 0
+
+    # ── Overlap-reload pipeline ─────────────────────────────────────────────
+    # Conv1 is the only consumer of input_sram. Once the core leaves CONV1
+    # (isram_free==1), the datapath reads ping_pong only, so we may load the
+    # NEXT sample into input_sram while THIS inference is still computing
+    # Conv2/3/4/GAP/FC. Single buffer -> enforce the driver-side contract:
+    #   (1) load N+1 only after isram_free==1 (no collision with Conv1 of N),
+    #   (2) start N+1 only after result N has been read (N+1 overwrites N).
+    if {$n_run > 0} {
+        load_ecg $m [get_sample $ecg_all 0]   ;# prime buffer with sample 0
+        start_inference $m
+    }
     for {set s 0} {$s < $n_run} {incr s} {
-        set off [expr {$s * $::SAMPLE_LEN}]
-        set sample [lrange $ecg_all $off [expr {$off + $::SAMPLE_LEN - 1}]]
-        load_ecg $m $sample
-        set pred [run_inference $m]
+        # Overlap: as soon as Conv1(s) released input_sram, load sample s+1.
+        if {$s + 1 < $n_run} {
+            # isram_free==1: inference s has left Conv1, so input_sram is no
+            # longer read by the datapath and may be reloaded. (Loading s+1 here
+            # is safe even if s already finished: start(s+1) below happens only
+            # after read_result(s), so s's class is never disturbed.)
+            poll_status $m 0x4 "isram_free(s=$s)"
+            load_ecg $m [get_sample $ecg_all [expr {$s + 1}]]
+        }
+        # Wait for inference s to finish, read its class.
+        poll_status $m 0x2 "done(s=$s)"
+        set pred [read_result $m]
+        # Buffer now holds s+1 (loaded above) -> safe to launch it.
+        if {$s + 1 < $n_run} { start_inference $m }
+
         set truth [expr {[lindex $lbl_all $s] & 0xFF}]
         if {$pred == $truth} { incr correct }
         set line [format "sample %4d : pred=%d truth=%d %s" \

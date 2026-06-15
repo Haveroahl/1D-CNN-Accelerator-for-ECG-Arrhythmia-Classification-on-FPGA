@@ -26,9 +26,14 @@ module gap_fc_argmax (
     // Ping SRAM read address (to top-level → ping_pong_sram rd_addr)
     output reg  [8:0]  gap_rd_addr,    // broadcast to all 8 channels (0..3)
 
-    // FC weight ROM init (loaded at elaboration)
-    // fc_w[k][i]: output neuron k=0..3, input i=0..7
-    // Loaded from fc_weights.hex — layout row-major [k][i]
+    // ── FC weight write port (bus, Phase B01 runtime reload) ────────────────
+    // fc_w (32 × INT8, addr=k*8+i) and fc_b (4 × INT32) are FF arrays; the bus
+    // adapter writes them before inference. fcw_wr_addr[5] selects bias region:
+    //   fcw_wr_addr[5]=0 → fc_w[addr[4:0]]   (INT8 in data[7:0])
+    //   fcw_wr_addr[5]=1 → fc_b[addr[1:0]]   (INT32 in data[31:0])
+    input  wire        fcw_wr_en,
+    input  wire [5:0]  fcw_wr_addr,
+    input  wire [31:0] fcw_wr_data,
 
     // Outputs
     output wire [1:0]  result          // argmax class index
@@ -48,9 +53,21 @@ module gap_fc_argmax (
     // FC bias: 4 × INT32, scaled by 2^w_shift[fc] (logit domain). Seeded into
     // fc_acc at fc_step==0 so the MAC accumulation adds it for free.
     reg signed [31:0] fc_b [0:3];
+`ifndef NO_WEIGHT_INIT
     initial begin
         $readmemh("fc_weights.hex", fc_w);
         $readmemh("fc_bias.hex", fc_b);
+    end
+`endif
+
+    // ── FC weight/bias write (bus) ──────────────────────────────────────────
+    always @(posedge clk) begin
+        if (fcw_wr_en) begin
+            if (fcw_wr_addr[5])
+                fc_b[fcw_wr_addr[1:0]] <= $signed(fcw_wr_data);
+            else
+                fc_w[fcw_wr_addr[4:0]] <= $signed(fcw_wr_data[7:0]);
+        end
     end
 
     // ── GAP datapath ───────────────────────────────────────────────────────

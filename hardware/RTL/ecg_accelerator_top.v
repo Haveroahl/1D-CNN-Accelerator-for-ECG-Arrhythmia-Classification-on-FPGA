@@ -15,7 +15,7 @@ module ecg_accelerator_top (
     input  wire        rst_n,       // async active-low reset (for avalon_slave)
 
     // Avalon-MM Slave port (from HPS Lightweight bridge)
-    input  wire [12:0] avs_address,
+    input  wire [13:0] avs_address,
     input  wire        avs_write,
     input  wire        avs_read,
     input  wire [31:0] avs_writedata,
@@ -31,6 +31,18 @@ module ecg_accelerator_top (
     wire        done;
     wire [1:0]  result;
     wire        isram_free;   // core: input_sram free to reload (CONV2..DONE)
+
+    // ── Weight-load wires (avalon_slave → ecg_core, Phase B01) ─────────
+    wire        w_wr_en;
+    wire [2:0]  w_wr_oc;
+    wire [4:0]  w_wr_word;
+    wire [39:0] w_wr_data;
+    wire        b_wr_en;
+    wire [4:0]  b_wr_addr;
+    wire [31:0] b_wr_data;
+    wire        fcw_wr_en;
+    wire [5:0]  fcw_wr_addr;
+    wire [31:0] fcw_wr_data;
 
     // ── avalon_slave (bus adapter) ─────────────────────────────────────
     avalon_slave u_avs (
@@ -48,7 +60,17 @@ module ecg_accelerator_top (
         .busy         (busy),
         .done         (done),
         .result       (result),
-        .isram_free   (isram_free)
+        .isram_free   (isram_free),
+        .w_wr_en      (w_wr_en),
+        .w_wr_oc      (w_wr_oc),
+        .w_wr_word    (w_wr_word),
+        .w_wr_data    (w_wr_data),
+        .b_wr_en      (b_wr_en),
+        .b_wr_addr    (b_wr_addr),
+        .b_wr_data    (b_wr_data),
+        .fcw_wr_en    (fcw_wr_en),
+        .fcw_wr_addr  (fcw_wr_addr),
+        .fcw_wr_data  (fcw_wr_data)
     );
 
     // ── ecg_core (bus-agnostic accelerator) ────────────────────────────
@@ -62,7 +84,17 @@ module ecg_accelerator_top (
         .busy         (busy),
         .done         (done),
         .result       (result),
-        .isram_free   (isram_free)
+        .isram_free   (isram_free),
+        .w_wr_en      (w_wr_en),
+        .w_wr_oc      (w_wr_oc),
+        .w_wr_word    (w_wr_word),
+        .w_wr_data    (w_wr_data),
+        .b_wr_en      (b_wr_en),
+        .b_wr_addr    (b_wr_addr),
+        .b_wr_data    (b_wr_data),
+        .fcw_wr_en    (fcw_wr_en),
+        .fcw_wr_addr  (fcw_wr_addr),
+        .fcw_wr_data  (fcw_wr_data)
     );
 
 endmodule

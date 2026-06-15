@@ -59,10 +59,17 @@ proc add_ecg_files { entity } {
     add_fileset_file gap_fc_argmax.v       VERILOG PATH "$rtl/gap_fc_argmax.v"
     # Weight .hex are read by $readmemh in cp_engine. Qsys copies them next to
     # the generated synth/sim files; the tool then finds them on the search path.
-    add_fileset_file conv1_w.hex   OTHER PATH "$rtl/conv1_w.hex"
-    add_fileset_file conv2_w.hex   OTHER PATH "$rtl/conv2_w.hex"
-    add_fileset_file conv3_w.hex   OTHER PATH "$rtl/conv3_w.hex"
-    add_fileset_file conv4_w.hex   OTHER PATH "$rtl/conv4_w.hex"
+    # Phase B01: cp_engine reads the 8 per-oc w_ram*.hex (M10K init); conv*_w.hex
+    # are no longer $readmemh'd by cp_engine but kept for the jtag_system submodule
+    # search path / legacy sim. conv_bias.hex is still read by cp_engine.
+    add_fileset_file w_ram0.hex    OTHER PATH "$rtl/w_ram0.hex"
+    add_fileset_file w_ram1.hex    OTHER PATH "$rtl/w_ram1.hex"
+    add_fileset_file w_ram2.hex    OTHER PATH "$rtl/w_ram2.hex"
+    add_fileset_file w_ram3.hex    OTHER PATH "$rtl/w_ram3.hex"
+    add_fileset_file w_ram4.hex    OTHER PATH "$rtl/w_ram4.hex"
+    add_fileset_file w_ram5.hex    OTHER PATH "$rtl/w_ram5.hex"
+    add_fileset_file w_ram6.hex    OTHER PATH "$rtl/w_ram6.hex"
+    add_fileset_file w_ram7.hex    OTHER PATH "$rtl/w_ram7.hex"
     add_fileset_file conv_bias.hex OTHER PATH "$rtl/conv_bias.hex"
     # gap_fc_argmax $readmemh's BOTH fc_weights.hex and fc_bias.hex (see
     # gap_fc_argmax.v:52-53). Both must be in the fileset so Qsys copies them
@@ -91,12 +98,14 @@ add_interface_port      reset_h rst reset Input 1
 set_interface_property  reset_h associatedClock clk
 
 # ── Avalon-MM slave ─────────────────────────────────────────────────────────
-# 13-bit WORD address. Read latency = 1 cycle (avs_readdata is registered in
+# 14-bit WORD address. Read latency = 1 cycle (avs_readdata is registered in
 # avalon_slave). No waitrequest / no burst — simple slave.
 #   Low registers 0x0000..0x0005 (unchanged 6-register map).
 #   DATA WINDOW   0x1000..0x19C3 (addr[12]=1): one word = one SRAM byte, so a
 #                 single System-Console block write loads a whole 2500-byte
 #                 sample (replaces the ~7500 per-byte JTAG transactions).
+#   WEIGHT WINDOW 0x2000..0x3FFF (addr[13]=1, Phase B01 runtime weight reload):
+#                 conv weight / conv bias / FC w+bias regions (see avalon_slave.v).
 add_interface           avs avalon end
 set_interface_property  avs associatedClock      clk
 set_interface_property  avs associatedReset      reset_n
@@ -105,14 +114,14 @@ set_interface_property  avs readLatency          1
 set_interface_property  avs maximumPendingReadTransactions 0
 set_interface_property  avs explicitAddressSpan  0
 
-add_interface_port      avs avs_address   address    Input  13
+add_interface_port      avs avs_address   address    Input  14
 add_interface_port      avs avs_write     write      Input  1
 add_interface_port      avs avs_read      read       Input  1
 add_interface_port      avs avs_writedata writedata  Input  32
 add_interface_port      avs avs_readdata  readdata   Output 32
 
 proc elaborate {} {
-    # Address span = 2^13 words = 8192 words. Low regs at 0x0..0x5, the data
-    # window occupies 0x1000..0x19C3 (2500 words). 8192 covers both.
-    set_interface_property avs explicitAddressSpan 8192
+    # Address span = 2^14 words = 16384 words. Low regs 0x0..0x5, ECG window
+    # 0x1000..0x19C3, weight window 0x2000..0x3FFF. 16384 covers all.
+    set_interface_property avs explicitAddressSpan 16384
 }

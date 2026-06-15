@@ -1,8 +1,9 @@
 // avalon_slave.v
 // Avalon-MM slave interface for ECG accelerator on DE10-Standard.
-// Bridges HPS Lightweight bridge to: Input SRAM write port + control/status registers.
+// Bridges HPS Lightweight bridge / JTAG-to-Avalon master to:
+//   Input SRAM write port + control/status registers + runtime weight load.
 //
-// Address map (WORDS, 13-bit address):
+// Address map (WORDS, 14-bit address):
 //   Low registers (unchanged, byte-at-a-time path — used by tb_top.v):
 //     0x0000 W : sram_din      [7:0]
 //     0x0001 W : sram_wr_addr  [11:0]
@@ -10,19 +11,25 @@
 //     0x0003 W : start         [0]   (clears done_latched)
 //     0x0004 R : status        {isram_free, done_latched, busy}
 //     0x0005 R : result        [1:0]
-//   DATA WINDOW (burst path — used by JTAG host master_write_memory):
+//   ECG DATA WINDOW (addr[13:12]=01, burst path — used by JTAG host):
 //     0x1000..0x19C3 W : write word -> sram_din<=wd[7:0], sram_wr_addr<=(addr-0x1000),
-//                        sram_we<=1.  addr[12]=1 selects the window; index = addr[11:0]
-//                        (0..2499). One System-Console block write loads a whole sample.
-// The window is purely additive: the low-register path is byte-identical to the
-// previous 5-bit slave, so tb_top.v (21/21 bit-exact) is unaffected.
+//                        sram_we<=1.  index = addr[11:0] (0..2499).
+//   WEIGHT WINDOW (addr[13]=1, Phase B01 runtime weight reload):
+//     region = addr[12:11]
+//       00  conv weight : offset = addr[10:0] = (word*8 + oc)*2 + hi
+//             hi=off[0], oc=off[3:1], word=off[8:4].  A 40-bit entry = 2 writes:
+//             lo (bits[31:0], hi=0) then hi (bits[39:32], hi=1) -> w_wr_en pulse.
+//       01  conv bias   : b_addr  = addr[4:0]  (0..31), data[31:0] = INT32  -> b_wr_en
+//       10  FC w/bias   : fcw_addr= addr[5:0]  ([5]=1 bias k=addr[1:0], else fc_w idx) -> fcw_wr_en
+// The ECG window and low-register paths are byte-identical to the previous
+// 13-bit slave, so tb_top.v (21/21 bit-exact) is unaffected.
 
 module avalon_slave (
     input  wire        clk,
     input  wire        rst_n,
 
     // Avalon-MM Slave
-    input  wire [12:0] avs_address,
+    input  wire [13:0] avs_address,
     input  wire        avs_write,
     input  wire        avs_read,
     input  wire [31:0] avs_writedata,
@@ -38,10 +45,25 @@ module avalon_slave (
     input  wire        busy,
     input  wire        done,
     input  wire [1:0]  result,
-    input  wire        isram_free   // core: input_sram free to reload (CONV2..DONE)
+    input  wire        isram_free,  // core: input_sram free to reload (CONV2..DONE)
+
+    // ── Weight load ports (to cp_engine) ────────────────────────────────────
+    output reg         w_wr_en,
+    output reg  [2:0]  w_wr_oc,
+    output reg  [4:0]  w_wr_word,
+    output reg  [39:0] w_wr_data,
+    output reg         b_wr_en,
+    output reg  [4:0]  b_wr_addr,
+    output reg  [31:0] b_wr_data,
+
+    // ── Weight load ports (to gap_fc_argmax) ────────────────────────────────
+    output reg         fcw_wr_en,
+    output reg  [5:0]  fcw_wr_addr,
+    output reg  [31:0] fcw_wr_data
 );
 
     reg done_latched;
+    reg [31:0] w_lo;   // holds conv-weight low 32 bits between the lo/hi write pair
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -51,16 +73,62 @@ module avalon_slave (
             sram_din     <= 8'h00;
             sram_wr_addr <= 12'h000;
             avs_readdata <= 32'h0;
+            w_wr_en      <= 1'b0;
+            w_wr_oc      <= 3'd0;
+            w_wr_word    <= 5'd0;
+            w_wr_data    <= 40'd0;
+            w_lo         <= 32'd0;
+            b_wr_en      <= 1'b0;
+            b_wr_addr    <= 5'd0;
+            b_wr_data    <= 32'd0;
+            fcw_wr_en    <= 1'b0;
+            fcw_wr_addr  <= 6'd0;
+            fcw_wr_data  <= 32'd0;
         end else begin
-            start   <= 1'b0;
-            sram_we <= 1'b0;
+            // 1-cycle strobes default low
+            start     <= 1'b0;
+            sram_we   <= 1'b0;
+            w_wr_en   <= 1'b0;
+            b_wr_en   <= 1'b0;
+            fcw_wr_en <= 1'b0;
 
             if (done)
                 done_latched <= 1'b1;
 
             if (avs_write) begin
-                if (avs_address[12]) begin
-                    // ── DATA WINDOW: one word = one SRAM byte (auto din+addr+we) ──
+                if (avs_address[13]) begin
+                    // ── WEIGHT WINDOW ──────────────────────────────────────
+                    case (avs_address[12:11])
+                        2'b00: begin
+                            // Conv weight: off = (word*8+oc)*2 + hi
+                            // off[0]=hi, off[3:1]=oc, off[8:4]=word
+                            if (avs_address[0]) begin
+                                // hi half -> assemble 40-bit and pulse write
+                                w_wr_data <= {avs_writedata[7:0], w_lo};
+                                w_wr_oc   <= avs_address[3:1];
+                                w_wr_word <= avs_address[8:4];
+                                w_wr_en   <= 1'b1;
+                            end else begin
+                                // lo half -> latch
+                                w_lo <= avs_writedata;
+                            end
+                        end
+                        2'b01: begin
+                            // Conv bias: 1 write per INT32 entry
+                            b_wr_addr <= avs_address[4:0];
+                            b_wr_data <= avs_writedata;
+                            b_wr_en   <= 1'b1;
+                        end
+                        2'b10: begin
+                            // FC weight/bias
+                            fcw_wr_addr <= avs_address[5:0];
+                            fcw_wr_data <= avs_writedata;
+                            fcw_wr_en   <= 1'b1;
+                        end
+                        default: ;
+                    endcase
+                end else if (avs_address[12]) begin
+                    // ── ECG DATA WINDOW: one word = one SRAM byte ──
                     sram_din     <= avs_writedata[7:0];
                     sram_wr_addr <= avs_address[11:0];
                     sram_we      <= 1'b1;

@@ -26,6 +26,18 @@ module ecg_core (
     input  wire [7:0]  sram_din,
     input  wire        sram_we,
 
+    // ── Weight load (from bus adapter, Phase B01) ──────────────────────
+    input  wire        w_wr_en,
+    input  wire [2:0]  w_wr_oc,
+    input  wire [4:0]  w_wr_word,
+    input  wire [39:0] w_wr_data,
+    input  wire        b_wr_en,
+    input  wire [4:0]  b_wr_addr,
+    input  wire [31:0] b_wr_data,
+    input  wire        fcw_wr_en,
+    input  wire [5:0]  fcw_wr_addr,
+    input  wire [31:0] fcw_wr_data,
+
     // ── Control / status (with bus adapter) ────────────────────────────
     input  wire        start,
     output wire        busy,
@@ -126,7 +138,14 @@ module ecg_core (
         .pong_din         (cp_pong_din),
         .pong_we          (cp_pong_we),
         .sram_rd_addr     (cp_sram_rd_addr),
-        .sram_rd_addr_in  (ctrl_t)
+        .sram_rd_addr_in  (ctrl_t),
+        .w_wr_en          (w_wr_en),
+        .w_wr_oc          (w_wr_oc),
+        .w_wr_word        (w_wr_word),
+        .w_wr_data        (w_wr_data),
+        .b_wr_en          (b_wr_en),
+        .b_wr_addr        (b_wr_addr),
+        .b_wr_data        (b_wr_data)
     );
 
     // ── gap_fc_argmax ──────────────────────────────────────────────────
@@ -139,6 +158,9 @@ module ecg_core (
         .argmax_step  (ctrl_argmax_step),
         .ping_dout    (pp_dout),
         .gap_rd_addr  (gap_rd_addr),
+        .fcw_wr_en    (fcw_wr_en),
+        .fcw_wr_addr  (fcw_wr_addr),
+        .fcw_wr_data  (fcw_wr_data),
         .result       (gap_result)
     );
 

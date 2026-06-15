@@ -108,6 +108,16 @@ set_global_assignment -name VERILOG_FILE ../RTL/cp_engine.v
 set_global_assignment -name VERILOG_FILE ../RTL/cp_block.v
 set_global_assignment -name VERILOG_FILE ../RTL/cnn_controller.v
 set_global_assignment -name VERILOG_FILE ../RTL/avalon_slave.v
+
+# ── Clock pin (Phase C timing measurement) ──────────────────────────────────
+# Pin clk onto a dedicated clock-capable input (PIN_AF14 = FPGA_CLK1_50 on the
+# DE10-Standard). Without this, the unassigned clk gets routed through a CLKENA
+# buffer (+6.6 ns), making I/O setup slack non-deterministic across compiles.
+# Assigning it forces the global clock tree → stable, repeatable timing numbers.
+# (This top is a measurement target; on the board the core runs under jtag_top.)
+set_location_assignment PIN_AF14 -to clk
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to clk
+
 set_global_assignment -name OPTIMIZATION_MODE "HIGH PERFORMANCE EFFORT"
 set_global_assignment -name FITTER_EFFORT "FAST FIT"
 set_global_assignment -name VERILOG_INPUT_VERSION SYSTEMVERILOG_2005

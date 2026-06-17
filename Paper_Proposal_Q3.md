@@ -385,6 +385,44 @@ References (40-60 entries)
 
 ---
 
+## 10b. Reviewer Q&A đã chuẩn bị (anticipated rebuttals)
+
+**Q: "RTL của anh bit-exact với BẤT KỲ weight nào (đã chứng minh 48 synthetic topology). Vậy verify PTB-XL trên RTL chứng minh thêm gì? Weight PTB-XL cũng chỉ là một bộ INT8 khác."**
+
+A — Thừa nhận trước: PTB-XL **không** verify datapath (datapath đã đủ bởi 48-topology
+sweep, vốn còn phủ rộng hơn — mọi out_ch 1..8/layer, monotone + non-monotone, mà
+PTB-XL (1,4,4,8) không chạm). PTB-XL-on-RTL verify **3 thứ synthetic KHÔNG chạm**:
+
+1. **Integration chain triển khai thật.** Synthetic golden + RTL-input cùng sinh trong
+   1 script (`gen_topo_golden.py`) → bỏ qua toolchain. PTB-XL đi qua chuỗi thật
+   `float C4 → qat_ptbxl.py (QAT-INT8) → export_weights_int8.py (pack 40-bit hex) →
+   driver dir → RTL $readmemh`. Bằng chứng: golden `w_ram*.hex` PTB-XL **IDENTICAL**
+   với driver-dir hex (17 word). Bug pack/base/byte-order sẽ làm PTB-XL FAIL còn
+   synthetic thì không.
+2. **nb runtime-config với giá trị do DỮ LIỆU quyết định.** PTB-XL calibrate ra
+   `nb[Conv3]=7` (Chapman=6) — không phải tôi chọn tay. Mọi synthetic case dùng nb
+   Chapman cố định. PTB-XL là **case duy nhất** chứng minh CONFIG window nạp nb≠quen
+   thuộc → barrel shifter shift đúng → bit-exact. Off-by-one ở shifter khi nb=7 chỉ
+   case này bắt được.
+3. **Nối software-claim ↔ hardware-claim cho C3.** Phase A claim "PTB-XL INT8 92.79%"
+   là số Python. Title proposal claim "FPGA-deployed cross-dataset". PTB-XL-on-RTL
+   đóng khoảng trống: 1 sample bit-exact nối số software với hardware bit-exactness.
+
+**Phát biểu defendable** (đưa vào Section 6.3): *"Cross-dataset datapath correctness is
+covered by the 48-topology sweep; the PTB-XL case additionally validates the
+deployment integration chain (QAT→export→pack→runtime-reconfig) with a
+data-determined nb (Conv3: 6→7), turning the C3 study from software-only into a
+verified-deployable result at the cost of one bit-exact sample."*
+
+**KHÔNG nói**: "cần 2 dataset để verify hardware" / "PTB-XL stress-test datapath" —
+reviewer bác ngay vì datapath đã bit-exact bất kể nguồn weight.
+
+> **Bắt buộc/không**: PTB-XL-on-RTL KHÔNG bắt buộc cho C2 (Chapman 21/21 + 48 sweep đủ).
+> Bắt buộc cho C3 **nếu** giữ chữ "on FPGA / deployed" trong title — nếu không, C3 tụt
+> xuống software-only study.
+
+---
+
 ## 11. Lựa chọn tạp chí — phân tích chi tiết
 
 | Journal | Pros | Cons | Khuyến nghị |

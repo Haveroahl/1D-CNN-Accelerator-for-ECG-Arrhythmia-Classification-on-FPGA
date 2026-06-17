@@ -73,6 +73,57 @@ FC:       no rescale (nb_fc=0), raw INT32 logits feed directly into argmax.
 
 ---
 
+## Runtime-Reconfigurable Topology (per-layer channel + nb)
+
+Topology mỗi layer (in_ch, cp_en, nb, weight-RAM base) **nạp được lúc runtime qua Avalon
+CONFIG window** — không recompile bitstream. Cùng 1 bitstream chạy nhiều cấu hình kênh
+khác nhau (bội-2, ≤8 mỗi layer), miễn nạp kèm weight/bias/FC khớp.
+
+**CONFIG window** (`avalon_slave.v`, addr[13]=1, addr[12:11]=11):
+- địa chỉ = `0x3800 | (field<<2) | layer` ; layer 0..3 = Conv1..4
+- field: 0=in_ch[3:0], 1=cp_en[7:0], 2=nb[4:0], 3=layer_base[4:0]
+- **Reset default = Chapman** (in_ch 1,4,4,8 / cp_en 0F,0F,FF,FF / nb 8,6,6,7 / base 0,1,5,9)
+  → không nạp config gì = hành vi cũ y hệt (tb_top 21/21 bit-exact không đổi).
+
+**Đường đi:** `avalon_slave` (cfg regs) → `ecg_core` → `cnn_controller` (in_ch/cp_en/nb) +
+`cp_engine` (layer_base) + `gap_fc_argmax` (out_ch_mask = Conv4 cp_en).
+
+**Mở rộng đã làm:**
+- Weight RAM `w_ram0..7[0:31]` (depth 32, từ 17) → cover MAX in_ch=(8,8,8,8) (tổng word ≤ 25).
+- `gap_fc_argmax` thêm `out_ch_mask`: GAP force `gap_reg=0` cho Conv4 channel inactive
+  → Conv4 out_ch<8 bit-exact, driver KHÔNG cần zero-pad FC weight.
+
+**Ràng buộc (driver chịu trách nhiệm):**
+1. `in_ch[L+1] = out_ch[L]` (output layer này = input layer sau).
+2. **Active channel pack từ bit 0** (cp_en = 0x01/0x03/0x0F/0x3F/0xFF…). Bắt buộc vì
+   controller dùng `cp_pong_we[0]` (ch0) làm heartbeat `pool_write` → ch0 phải luôn active.
+3. Nạp đồng bộ weight (pack theo base) + bias (scale 2^nb) + nb + base + FC.
+4. Tổng in_ch 4 layer ≤ 32 (depth RAM). Conv1 in_ch=1 cố định (single-lead) → max thực = 25.
+5. `in_len`/`out_len` cố định (2500→500→100→20→4) — KHÔNG đổi runtime.
+
+**Verify:**
+- `tb_topo.v` (golden từ `gen_topo_golden.py`) — full inference **bit-exact 11/11**:
+  chapman (1,4,4,8), MIN (2,2,2,2), MAX (8,8,8,8), 4 mixed, 3 odd/floor case
+  (min1111, t3456, t3577) + **ptbxl** (weight PTB-XL thật + nb[Conv3]=7 runtime).
+- `tb_topo_sweep.v` (manifest-driven, golden từ `gen_topo_golden.py`) — **48/48
+  bit-exact** coverage sweep: mọi out_ch 1..8 ở mọi layer + monotone + non-monotone
+  (3,1,7,5)(8,1,8,1) + random. Chứng minh RTL chạy đúng **mọi** topology 1..8/layer,
+  không chỉ bội-2. Latency biến thiên thật 32.12µs (1,1,1,1) → 76.54µs (8,8,8,8).
+- `tb_top.v` TC08/TC09/TC10 — config-write/consume/recover + GAP mask + word biên 31.
+
+> **PTB-XL case (cross-dataset C3 enabling):** `gen_ptbxl_golden.py` lấy weight INT8
+> đã QAT trên PTB-XL (`qat_ptbxl.py`, INT8 test acc 92.79%) + 1 ECG test sample thật,
+> chạy qua **cùng RTL** với CONFIG `nb[Conv3]=7` (Chapman dùng 6) → fc_acc 4/4 khớp
+> bit-exact. Đây là bằng chứng (không cần board) rằng **1 bitstream** chạy được cả
+> Chapman lẫn PTB-XL chỉ bằng reconfig nb + weight reload qua Avalon. Driver JTAG
+> (`soc/ecg_jtag_console.tcl`) đã có `load_topology`/`load_weights` + `demo_data/
+> ptbxl_weights/topo.txt` (nb Conv3=7) để chạy on-board khi có DE10 + USB-Blaster.
+
+> ⚠️ Bản copy Qsys trong `soc/*/submodules/` + `db/ip/` là snapshot cũ — regenerate Qsys
+> nếu build Phase D để các module nhận port `cfg_*`.
+
+---
+
 ## Module List
 
 | Module | File | Status |

@@ -36,6 +36,11 @@ set A_WBIAS  0xA000   ;# (0x2800 << 2) conv bias base
 set A_WFC    0xC000   ;# (0x3000 << 2) FC weight base
 set A_WFCB   0xC080   ;# (0x3020 << 2) FC bias base (fcw_addr[5]=1)
 
+# Topology CONFIG window (avalon_slave.v addr[13]=1, addr[12:11]=11):
+#   word = 0x3800 | (field<<2) | layer  ->  byte = word<<2 = 0xE000 | (field<<4) | (layer<<2)
+#   field: 0=in_ch 1=cp_en 2=nb 3=base ; layer 0..3 = Conv1..4
+set A_CFG    0xE000   ;# (0x3800 << 2) topology config base
+
 # ---- weight config ----
 set ::WEIGHT_DIR  "demo_data/chapman_weights"   ;# set to ptbxl_weights for C3 cross-dataset
 
@@ -95,17 +100,65 @@ proc read_hex_file {path} {
 #   bias : conv_bias.hex (32 × INT32), one write each.
 #   FC   : fc_weights.hex (32 × INT8) + fc_bias.hex (4 × INT32, fcw_addr[5]=1).
 # ----------------------------------------------------------------------------
+# ----------------------------------------------------------------------------
+# Read topo.txt (one line per layer Conv1..4: "in_ch cp_en nb base", '#' comments
+# tolerated) into a list of 4 {in_ch cp_en nb base} sublists. Returns {} if the
+# file is absent (caller falls back to the hard-coded 17-word Chapman layout).
+# ----------------------------------------------------------------------------
+proc read_topo {dir} {
+    set path "$dir/topo.txt"
+    if {![file exists $path]} { return {} }
+    set f [open $path r]
+    set rows {}
+    while {[gets $f line] >= 0} {
+        set line [string trim $line]
+        if {$line eq "" || [string match "#*" $line]} { continue }
+        lappend rows [lrange $line 0 3]   ;# in_ch cp_en nb base
+    }
+    close $f
+    return $rows
+}
+
+# ----------------------------------------------------------------------------
+# Write the per-layer topology into the CONFIG window so a SINGLE bitstream runs
+# an arbitrary 1..8-channel-per-layer layout (verified bit-exact by tb_topo_sweep).
+# topo = list of 4 {in_ch cp_en nb base}. With NO call the slave keeps its reset
+# default (Chapman 1,4,4,8) — so the legacy flow is unchanged.
+# ----------------------------------------------------------------------------
+proc load_topology {m topo} {
+    global A_CFG
+    for {set L 0} {$L < 4} {incr L} {
+        lassign [lindex $topo $L] ic ce nb bs
+        # byte addr = A_CFG | (field<<4) | (layer<<2)
+        master_write_32 $m [expr {$A_CFG | (0<<4) | ($L<<2)}] [expr {$ic & 0xF}]
+        master_write_32 $m [expr {$A_CFG | (1<<4) | ($L<<2)}] [expr {$ce & 0xFF}]
+        master_write_32 $m [expr {$A_CFG | (2<<4) | ($L<<2)}] [expr {$nb & 0x1F}]
+        master_write_32 $m [expr {$A_CFG | (3<<4) | ($L<<2)}] [expr {$bs & 0x1F}]
+    }
+    puts "Loaded topology: $topo"
+}
+
 proc load_weights {m} {
     global A_WCONV A_WBIAS A_WFC A_WFCB
     set dir $::WEIGHT_DIR
 
-    # --- conv weights: read 8 per-oc files (each 17 × 40-bit hex) ---
+    # Determine the number of conv weight RAM words from topo.txt (base[3]+in_ch[3]);
+    # fall back to the Chapman 17 if no topo file is present.
+    set topo [read_topo $dir]
+    if {[llength $topo] == 4} {
+        lassign [lindex $topo 3] ic3 ce3 nb3 bs3
+        set nwords [expr {$bs3 + $ic3}]
+    } else {
+        set nwords 17
+    }
+
+    # --- conv weights: read 8 per-oc files (each $nwords x 40-bit hex) ---
     for {set oc 0} {$oc < 8} {incr oc} {
         set ram($oc) [read_hex_file "$dir/w_ram$oc.hex"]
     }
     # Build one block in linear offset order: for each ramword, for each oc, lo then hi.
     set conv_words {}
-    for {set w 0} {$w < 17} {incr w} {
+    for {set w 0} {$w < $nwords} {incr w} {
         for {set oc 0} {$oc < 8} {incr oc} {
             set e [lindex $ram($oc) $w]
             lappend conv_words [expr {$e & 0xFFFFFFFF}]            ;# lo (hi bit=0)
@@ -123,7 +176,7 @@ proc load_weights {m} {
     # --- FC bias (4 × INT32) at fcw_addr[5]=1 region ---
     master_write_32 $m $A_WFCB [read_hex_file "$dir/fc_bias.hex"]
 
-    puts "Loaded weights from $dir ([llength $conv_words] conv words + bias + FC)"
+    puts "Loaded weights from $dir ($nwords words/oc, [llength $conv_words] conv words + bias + FC)"
 }
 
 proc load_ecg {m bytes} {
@@ -217,6 +270,16 @@ proc main {} {
     }
 
     set m [open_master]
+
+    # Runtime reconfig: if WEIGHT_DIR ships a topo.txt, push its per-layer
+    # channel/nb/base into the CONFIG window first. Absent topo.txt -> the slave
+    # keeps its Chapman reset default, so the legacy flow is byte-identical.
+    set topo [read_topo $::WEIGHT_DIR]
+    if {[llength $topo] == 4} {
+        load_topology $m $topo
+    } else {
+        puts "No topo.txt in $::WEIGHT_DIR -> using slave reset default (Chapman 1,4,4,8)"
+    }
 
     # Phase B01: load weights from the PC over the bus before any inference.
     load_weights $m

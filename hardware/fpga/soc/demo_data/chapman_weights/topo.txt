@@ -1,0 +1,7 @@
+# topology for the ECG accelerator CONFIG window (one line per layer, Conv1..4).
+# fields: in_ch  cp_en  nb  base   (cp_en/nb/base = weight-RAM word base)
+# Chapman default (1,4,4,8). total weight words = base[3]+in_ch[3] = 9+8 = 17.
+1 15 8 0
+4 15 6 1
+4 255 6 5
+8 255 7 9

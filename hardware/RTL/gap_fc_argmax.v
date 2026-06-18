@@ -23,6 +23,13 @@ module gap_fc_argmax (
     // Ping SRAM data (Conv4 output, 8 channels × 4 entries)
     input  wire [63:0] ping_dout,               // packed: ping_dout[ch*8+:8], 1-cy latency
 
+    // Conv4 active-output mask (= cp_en of Conv4). Channels with mask bit 0 were
+    // never written this inference, so their ping bank holds stale data; GAP
+    // forces their pooled value to 0 so a reduced Conv4 out_ch (e.g. 2/4/6) is
+    // bit-exact without the driver having to zero-pad FC weights. Default 8'hFF
+    // (all active) reproduces the original full-8-channel behavior.
+    input  wire [7:0]  out_ch_mask,
+
     // Ping SRAM read address (to top-level → ping_pong_sram rd_addr)
     output reg  [8:0]  gap_rd_addr,    // broadcast to all 8 channels (0..3)
 
@@ -121,9 +128,11 @@ module gap_fc_argmax (
                                        + {{2{ping_dout[ch_i*8+7]}}, ping_dout[ch_i*8 +: 8]};
                 end
                 4'd5: begin
-                    // Conv4 RELU_EN=1 → gap_acc ∈ [0,508] → gap_acc[9:2] ∈ [0,127], no clamp
+                    // Conv4 RELU_EN=1 → gap_acc ∈ [0,508] → gap_acc[9:2] ∈ [0,127], no clamp.
+                    // Inactive Conv4 channels (out_ch_mask[ch]=0) hold stale ping
+                    // data → force 0 so reduced out_ch is bit-exact.
                     for (ch_i = 0; ch_i < 8; ch_i = ch_i + 1)
-                        gap_reg[ch_i] <= gap_acc[ch_i][9:2];
+                        gap_reg[ch_i] <= out_ch_mask[ch_i] ? gap_acc[ch_i][9:2] : 8'sd0;
                 end
                 default: ;
             endcase

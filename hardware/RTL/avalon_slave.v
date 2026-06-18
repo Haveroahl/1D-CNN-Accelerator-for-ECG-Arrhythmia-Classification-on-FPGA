@@ -9,7 +9,7 @@
 //     0x0001 W : sram_wr_addr  [11:0]
 //     0x0002 W : sram_we       [0]
 //     0x0003 W : start         [0]   (clears done_latched)
-//     0x0004 R : status        {isram_free, done_latched, busy}
+//     0x0004 R : status        {done_latched, busy}
 //     0x0005 R : result        [1:0]
 //   ECG DATA WINDOW (addr[13:12]=01, burst path — used by JTAG host):
 //     0x1000..0x19C3 W : write word -> sram_din<=wd[7:0], sram_wr_addr<=(addr-0x1000),
@@ -21,6 +21,17 @@
 //             lo (bits[31:0], hi=0) then hi (bits[39:32], hi=1) -> w_wr_en pulse.
 //       01  conv bias   : b_addr  = addr[4:0]  (0..31), data[31:0] = INT32  -> b_wr_en
 //       10  FC w/bias   : fcw_addr= addr[5:0]  ([5]=1 bias k=addr[1:0], else fc_w idx) -> fcw_wr_en
+//       11  TOPOLOGY CONFIG (runtime channel/nb reconfig — see below):
+//             layer = addr[1:0] (0..3 = Conv1..4), field = addr[3:2]:
+//               0: in_ch       [3:0]   (1..8)
+//               1: cp_en       [7:0]   (active output-channel bitmask)
+//               2: nb          [4:0]   (rescale shift)
+//               3: layer_base  [4:0]   (weight-RAM word base for this layer)
+//             Config registers RESET to the default Chapman topology
+//             (in_ch=1,4,4,8 / cp_en=0F,0F,FF,FF / nb=8,6,6,7 / base=0,1,5,9),
+//             so with NO config writes the DUT behaves exactly as before
+//             (tb_top.v 21/21 bit-exact unaffected). The driver overrides these
+//             only when loading a different topology + matching weights.
 // The ECG window and low-register paths are byte-identical to the previous
 // 13-bit slave, so tb_top.v (21/21 bit-exact) is unaffected.
 
@@ -45,7 +56,6 @@ module avalon_slave (
     input  wire        busy,
     input  wire        done,
     input  wire [1:0]  result,
-    input  wire        isram_free,  // core: input_sram free to reload (CONV2..DONE)
 
     // ── Weight load ports (to cp_engine) ────────────────────────────────────
     output reg         w_wr_en,
@@ -59,7 +69,14 @@ module avalon_slave (
     // ── Weight load ports (to gap_fc_argmax) ────────────────────────────────
     output reg         fcw_wr_en,
     output reg  [5:0]  fcw_wr_addr,
-    output reg  [31:0] fcw_wr_data
+    output reg  [31:0] fcw_wr_data,
+
+    // ── Topology config (to cnn_controller + cp_engine, packed per-layer) ────
+    // layer L occupies bit-slice [L*W +: W]. Reset = default Chapman topology.
+    output reg  [15:0] cfg_in_ch,    // 4 × 4-bit  in_ch  per layer
+    output reg  [31:0] cfg_cp_en,    // 4 × 8-bit  cp_en  per layer
+    output reg  [19:0] cfg_nb,       // 4 × 5-bit  nb     per layer
+    output reg  [19:0] cfg_base      // 4 × 5-bit  layer_base per layer
 );
 
     reg done_latched;
@@ -84,6 +101,11 @@ module avalon_slave (
             fcw_wr_en    <= 1'b0;
             fcw_wr_addr  <= 6'd0;
             fcw_wr_data  <= 32'd0;
+            // Default Chapman topology (Conv1..4). Packed LSB = Conv1.
+            cfg_in_ch    <= {4'd8, 4'd4, 4'd4, 4'd1};                 // L3,L2,L1,L0
+            cfg_cp_en    <= {8'hFF, 8'hFF, 8'h0F, 8'h0F};
+            cfg_nb       <= {5'd7, 5'd6, 5'd6, 5'd8};
+            cfg_base     <= {5'd9, 5'd5, 5'd1, 5'd0};
         end else begin
             // 1-cycle strobes default low
             start     <= 1'b0;
@@ -125,7 +147,15 @@ module avalon_slave (
                             fcw_wr_data <= avs_writedata;
                             fcw_wr_en   <= 1'b1;
                         end
-                        default: ;
+                        2'b11: begin
+                            // TOPOLOGY CONFIG: layer=addr[1:0], field=addr[3:2]
+                            case (avs_address[3:2])
+                                2'd0: cfg_in_ch[avs_address[1:0]*4 +: 4] <= avs_writedata[3:0];
+                                2'd1: cfg_cp_en[avs_address[1:0]*8 +: 8] <= avs_writedata[7:0];
+                                2'd2: cfg_nb   [avs_address[1:0]*5 +: 5] <= avs_writedata[4:0];
+                                2'd3: cfg_base [avs_address[1:0]*5 +: 5] <= avs_writedata[4:0];
+                            endcase
+                        end
                     endcase
                 end else if (avs_address[12]) begin
                     // ── ECG DATA WINDOW: one word = one SRAM byte ──
@@ -148,7 +178,7 @@ module avalon_slave (
 
             if (avs_read)
                 case ({avs_address[12], avs_address[2:0]})
-                    4'h4: avs_readdata <= {29'b0, isram_free, done_latched, busy};
+                    4'h4: avs_readdata <= {30'b0, done_latched, busy};
                     4'h5: avs_readdata <= {30'b0, result};
                     default: avs_readdata <= 32'b0;
                 endcase

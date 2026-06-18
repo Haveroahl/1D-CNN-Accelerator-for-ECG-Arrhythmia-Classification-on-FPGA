@@ -20,7 +20,7 @@
 //       Pulses `start` for one cycle (kicks off inference). Returns ACK.
 //
 //   CMD_STATUS(0xA2)
-//       Returns one status byte: {5'b0, isram_free, done_latched, busy}.
+//       Returns one status byte: {6'b0, done_latched, busy}.
 //       done_latched is set when the core asserts `done`, cleared by CMD_START.
 //
 //   CMD_RESULT(0xA3)
@@ -50,8 +50,7 @@ module uart_wrapper #(
     output reg         start,
     input  wire        busy,
     input  wire        done,
-    input  wire [1:0]  result,
-    input  wire        isram_free
+    input  wire [1:0]  result
 );
 
     // ── Opcodes ────────────────────────────────────────────────────────
@@ -140,7 +139,7 @@ module uart_wrapper #(
                                 state        <= W_RESP;
                             end
                             CMD_STATUS: begin
-                                tx_data  <= {5'b0, isram_free, done_latched, busy};
+                                tx_data  <= {6'b0, done_latched, busy};
                                 tx_start <= 1'b1;
                                 state    <= W_RESP;
                             end

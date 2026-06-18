@@ -28,7 +28,10 @@ module ecg_uart_top #(
     wire        busy;
     wire        done;
     wire [1:0]  result;
-    wire        isram_free;
+
+    // ── input_sram read port (core ↔ wrapper-resident input_sram) ──────
+    wire [11:0] input_rd_addr;
+    wire [7:0]  input_dout;
 
     // ── uart_wrapper (bus adapter) ─────────────────────────────────────
     uart_wrapper #(.CLK_FREQ(CLK_FREQ), .BAUD(BAUD)) u_uart (
@@ -42,22 +45,29 @@ module ecg_uart_top #(
         .start        (start),
         .busy         (busy),
         .done         (done),
-        .result       (result),
-        .isram_free   (isram_free)
+        .result       (result)
+    );
+
+    // ── input_sram (input I/O buffer — host writes, core reads) ────────
+    input_sram u_isram (
+        .clk    (clk),
+        .wr_addr(sram_wr_addr),
+        .din    (sram_din),
+        .we     (sram_we),
+        .rd_addr(input_rd_addr),
+        .dout   (input_dout)
     );
 
     // ── ecg_core (bus-agnostic accelerator, unchanged) ─────────────────
     ecg_core u_core (
         .clk          (clk),
         .rst          (rst),
-        .sram_wr_addr (sram_wr_addr),
-        .sram_din     (sram_din),
-        .sram_we      (sram_we),
+        .input_rd_addr(input_rd_addr),
+        .input_dout   (input_dout),
         .start        (start),
         .busy         (busy),
         .done         (done),
-        .result       (result),
-        .isram_free   (isram_free)
+        .result       (result)
     );
 
 endmodule

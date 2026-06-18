@@ -175,6 +175,40 @@ module tb_top;
         end
     endtask
 
+    // Write one topology-config register via the CONFIG window.
+    //   addr[13]=1, addr[12:11]=11 (config), addr[3:2]=field, addr[1:0]=layer.
+    //   field: 0=in_ch, 1=cp_en, 2=nb, 3=layer_base.
+    // Full 14-bit address = (1<<13)|(3<<11) | (field<<2) | layer = 0x3800 | ...
+    task cfg_wr;
+        input [1:0]  layer;
+        input [1:0]  field;
+        input [31:0] data;
+        begin
+            @(negedge clk);
+            avs_address   = 14'h3800 | (field << 2) | layer;
+            avs_writedata = data;
+            avs_write     = 1;
+            @(posedge clk); #1;
+            avs_write   = 0;
+            avs_address = 0;
+        end
+    endtask
+
+    // Raw 14-bit Avalon write (for weight/config windows that need the full addr).
+    task bus_wr14;
+        input [13:0] addr;
+        input [31:0] data;
+        begin
+            @(negedge clk);
+            avs_address   = addr;
+            avs_writedata = data;
+            avs_write     = 1;
+            @(posedge clk); #1;
+            avs_write   = 0;
+            avs_address = 0;
+        end
+    endtask
+
     // Load ECG from hex file (2500 × INT8)
     task load_ecg_hex;
         input [255:0] filename;
@@ -484,7 +518,7 @@ module tb_top;
         begin
             mismatches = 0; first_bad = -1; first_rtl = 0; first_gold = 0;
             for (i = 0; i < 2500; i = i + 1) begin
-                rtl_v  = $signed({u_top.u_core.u_isram.mem[i][7], u_top.u_core.u_isram.mem[i]});
+                rtl_v  = $signed({u_top.u_isram.mem[i][7], u_top.u_isram.mem[i]});
                 gold_v = $signed({gold_input[i][7], gold_input[i]});
                 diff = rtl_v - gold_v;
                 g_total = g_total + 1;
@@ -808,6 +842,171 @@ module tb_top;
             end else begin
                 $display("FAIL [TC07_gap_substates] fc_sub_seen=0x%02X (missing substates)  (%0t ns)",
                          fc_sub_seen, $time - tc_t0);
+                fail_cnt = fail_cnt + 1;
+            end
+        end
+
+        // ── TC08: Runtime topology config path (driver-loadable channels) ──
+        // Proves the CONFIG window actually drives the datapath, two ways:
+        //   (a) NEGATIVE: corrupt Conv4 in_ch=1 (instead of 8) — the engine then
+        //       accumulates only 1 of 8 input channels, computing wrong logits.
+        //       → sample0 result must DIFFER from the golden class. If config
+        //         were ignored, result would still match → path not wired.
+        //       (cp_en=0 would only stop writes, leaving stale memory that can
+        //        coincidentally argmax the same — in_ch corrupts the math.)
+        //   (b) POSITIVE: write the correct Chapman config back for all layers
+        //       → sample0 result matches golden again → driver can set & recover.
+        $display("[TC08] Runtime topology config path...");
+        begin : tc08
+            reg [1:0]  cls08;
+            integer    cyc08;
+            integer    li, ndiff;
+            reg [3:0]  cfg_field;
+            // Reload sample0 golden logits (gold_logits currently holds sample2).
+            $readmemh("golden/sample0/logits_fc.mem", gold_logits);
+
+            // ---- (a0) write-path proof: config register reflects the write ----
+            // Argmax alone can't prove consumption (a wrong config may
+            // coincidentally argmax the same class), so first confirm the write
+            // actually lands in the cfg register, then confirm it changes the
+            // computed logits (deterministic, not just the final class).
+            apply_reset;             // config regs reset to default Chapman
+            cfg_wr(2'd3, 2'd0, 32'd1);    // layer3 (Conv4), field0 (in_ch) = 1
+            cfg_field = u_top.u_avs.cfg_in_ch[3*4 +: 4];
+            if (cfg_field === 4'd1) begin
+                $display("PASS [TC08a0_cfg_write] cfg_in_ch[Conv4]=%0d after write  (%0t ns)", cfg_field, $time - tc_t0);
+                pass_cnt = pass_cnt + 1;
+            end else begin
+                $display("FAIL [TC08a0_cfg_write] cfg_in_ch[Conv4]=%0d expected 1  (%0t ns)", cfg_field, $time - tc_t0);
+                fail_cnt = fail_cnt + 1;
+            end
+
+            // ---- (a) consumption proof: broken in_ch changes the FC logits ----
+            // Reuse the existing auto-trigger capture: fc_acc is dumped at FC-done.
+            // Compare fc_acc against gold_logits — with Conv4 in_ch=1 they MUST
+            // differ (engine accumulates 1 of 8 channels).
+            current_sample = 0;
+            load_ecg_hex("ecg_sample0.hex");
+            run_inference(cls08, cyc08);
+            ndiff = 0;
+            for (li = 0; li < 4; li = li + 1)
+                if ($signed(u_top.u_core.u_gfa.fc_acc[li]) !== $signed(gold_logits[li]))
+                    ndiff = ndiff + 1;
+            if (ndiff > 0) begin
+                $display("PASS [TC08a_cfg_consumed] broken Conv4 in_ch changed %0d/4 logits vs golden  (%0t ns)", ndiff, $time - tc_t0);
+                pass_cnt = pass_cnt + 1;
+            end else begin
+                $display("FAIL [TC08a_cfg_consumed] logits unchanged — config NOT reaching datapath  (%0t ns)", $time - tc_t0);
+                fail_cnt = fail_cnt + 1;
+            end
+
+            // ---- (b) positive: write correct Chapman config, expect recovery ----
+            apply_reset;
+            current_sample = 0;
+            load_ecg_hex("ecg_sample0.hex");
+            // in_ch (field0)
+            cfg_wr(2'd0, 2'd0, 32'd1); cfg_wr(2'd1, 2'd0, 32'd4);
+            cfg_wr(2'd2, 2'd0, 32'd4); cfg_wr(2'd3, 2'd0, 32'd8);
+            // cp_en (field1)
+            cfg_wr(2'd0, 2'd1, 32'h0F); cfg_wr(2'd1, 2'd1, 32'h0F);
+            cfg_wr(2'd2, 2'd1, 32'hFF); cfg_wr(2'd3, 2'd1, 32'hFF);
+            // nb (field2)
+            cfg_wr(2'd0, 2'd2, 32'd8); cfg_wr(2'd1, 2'd2, 32'd6);
+            cfg_wr(2'd2, 2'd2, 32'd6); cfg_wr(2'd3, 2'd2, 32'd7);
+            // layer_base (field3)
+            cfg_wr(2'd0, 2'd3, 32'd0); cfg_wr(2'd1, 2'd3, 32'd1);
+            cfg_wr(2'd2, 2'd3, 32'd5); cfg_wr(2'd3, 2'd3, 32'd9);
+            run_inference(cls08, cyc08);
+            // Bit-exact recovery: config-driven path must equal reset-default path.
+            ndiff = 0;
+            for (li = 0; li < 4; li = li + 1)
+                if ($signed(u_top.u_core.u_gfa.fc_acc[li]) !== $signed(gold_logits[li]))
+                    ndiff = ndiff + 1;
+            if (cls08 === expected_results[0] && ndiff == 0) begin
+                $display("PASS [TC08b_cfg_recover] explicit Chapman config -> class=%0d, logits bit-exact  (%0t ns)",
+                         cls08, $time - tc_t0);
+                pass_cnt = pass_cnt + 1;
+            end else begin
+                $display("FAIL [TC08b_cfg_recover] got=%0d expected=%0d, %0d logits differ  (%0t ns)",
+                         cls08, expected_results[0], ndiff, $time - tc_t0);
+                fail_cnt = fail_cnt + 1;
+            end
+        end
+
+        // ── TC09: GAP out_ch_mask — reduced Conv4 out_ch is bit-exact ──────
+        // Masking Conv4 channel C (cp_en bit C = 0) must zero gap_reg[C], so each
+        // logit[k] drops by EXACTLY gap_golden[C]*fc_w[k][C]. We predict that
+        // delta from the golden GAP and the DUT's own FC weights, then check the
+        // masked run's fc_acc == golden_logit - delta for all 4 neurons. This
+        // proves the mask zeroes the right channel (enabling out_ch<8 without the
+        // driver zero-padding FC weights).
+        $display("[TC09] GAP out_ch_mask (reduced Conv4 out_ch)...");
+        begin : tc09
+            reg [1:0]  cls09;
+            integer    cyc09, k, mism09;
+            reg signed [31:0] gap0, fcw, expect_k, got_k;
+            // Mask the HIGHEST channel: channel 0 must stay active because the
+            // controller's pool_write heartbeat = cp_pong_we[0] (ch0 representative).
+            localparam integer MASK_CH = 7;
+
+            $readmemh("golden/sample0/after_gap.mem",  gold_gap);
+            $readmemh("golden/sample0/logits_fc.mem",  gold_logits);
+
+            apply_reset;
+            current_sample = 0;
+            load_ecg_hex("ecg_sample0.hex");
+            // Conv4 cp_en = 0xFF with bit MASK_CH cleared.
+            cfg_wr(2'd3, 2'd1, 32'hFF & ~(32'd1 << MASK_CH));
+            run_inference(cls09, cyc09);
+
+            gap0   = $signed({gold_gap[MASK_CH][7], gold_gap[MASK_CH]});
+            mism09 = 0;
+            for (k = 0; k < 4; k = k + 1) begin
+                fcw      = $signed(u_top.u_core.u_gfa.fc_w[k*8 + MASK_CH]);
+                expect_k = $signed(gold_logits[k]) - gap0 * fcw;
+                got_k    = $signed(u_top.u_core.u_gfa.fc_acc[k]);
+                if (got_k !== expect_k) begin
+                    mism09 = mism09 + 1;
+                    $display("    logit[%0d]: got=%0d expect=%0d (golden=%0d - gap0*w=%0d)",
+                             k, got_k, expect_k, $signed(gold_logits[k]), gap0*fcw);
+                end
+            end
+            if (mism09 == 0) begin
+                $display("PASS [TC09_gap_mask] masking Conv4 ch%0d zeroed it exactly in all 4 logits  (%0t ns)",
+                         MASK_CH, $time - tc_t0);
+                pass_cnt = pass_cnt + 1;
+            end else begin
+                $display("FAIL [TC09_gap_mask] %0d/4 logits mismatch after masking ch%0d  (%0t ns)",
+                         mism09, MASK_CH, $time - tc_t0);
+                fail_cnt = fail_cnt + 1;
+            end
+        end
+
+        // ── TC10: weight RAM depth-32 reaches the MAX-topology top word ────
+        // For in_ch=(8,8,8,8) the bases are {0,8,16,24}, so Conv4 ic=7 lands at
+        // word 24+7 = 31 — the deepest word. Prove the bus can write that word of
+        // the highest oc (oc7) and it lands correctly (5-bit addr, depth 32).
+        //   conv-weight window: addr[13]=1, addr[12:11]=00,
+        //     off = (word*8 + oc)*2 + hi ; word=31, oc=7.
+        //   A 40-bit entry = lo write (hi=0) then hi write (hi=1).
+        $display("[TC10] Weight RAM depth-32 top-word write (max topology 8,8,8,8)...");
+        begin : tc10
+            reg [39:0] wexp;
+            integer    off_lo, off_hi;
+            apply_reset;
+            wexp   = 40'hA5_1234_5678;     // arbitrary distinct pattern
+            off_lo = (31*8 + 7)*2 + 0;     // = 504
+            off_hi = (31*8 + 7)*2 + 1;     // = 505
+            bus_wr14(14'h2000 | off_lo[10:0], wexp[31:0]);          // lo half
+            bus_wr14(14'h2000 | off_hi[10:0], {24'h0, wexp[39:32]}); // hi half → w_wr_en
+            @(posedge clk); #1;            // let the write commit
+            if (u_top.u_core.u_cpe.w_ram7[31] === wexp) begin
+                $display("PASS [TC10_depth32_topword] w_ram7[31]=%010x lands via bus  (%0t ns)",
+                         u_top.u_core.u_cpe.w_ram7[31], $time - tc_t0);
+                pass_cnt = pass_cnt + 1;
+            end else begin
+                $display("FAIL [TC10_depth32_topword] w_ram7[31]=%010x expected %010x  (%0t ns)",
+                         u_top.u_core.u_cpe.w_ram7[31], wexp, $time - tc_t0);
                 fail_cnt = fail_cnt + 1;
             end
         end

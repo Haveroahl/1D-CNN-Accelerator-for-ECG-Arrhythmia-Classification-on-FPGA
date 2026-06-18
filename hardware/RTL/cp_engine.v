@@ -9,9 +9,11 @@
 //   5. 8 cp_block instances, weight from 8 per-oc M10K RAMs (40b/word = 5 taps packed)
 //   6. Pool write gating: pool_write && cp_en[oc]
 //
-// Weight storage (Phase B01 — runtime-loadable): 8 per-oc M10K RAMs, 40b × 17.
-//   w_ram0..7[0:16]  — one RAM per output channel; word = layer_base + ic.
-//     Conv1 base=0 (1w)  Conv2 base=1 (4w)  Conv3 base=5 (4w)  Conv4 base=9 (8w)
+// Weight storage (Phase B01 — runtime-loadable): 8 per-oc M10K RAMs, 40b × 32.
+//   w_ram0..7[0:31]  — one RAM per output channel; word = layer_base + ic.
+//     Default Chapman: Conv1 base=0 (1w) Conv2 base=1 (4w) Conv3 base=5 (4w)
+//     Conv4 base=9 (8w) = 17 words. Depth 32 covers the MAX topology
+//     in_ch=(8,8,8,8) (bases {0,8,16,24}, top word 31) for runtime reconfig.
 //   Read: 8 RAMs read the SAME word {layer_base+a} → 8 oc weights in parallel.
 //     M10K is SYNC-read: addr at cy N → q at cy N+1. That q register replaces
 //     the old async-ROM + w_packed FF stage, so pipeline alignment is identical.
@@ -64,11 +66,11 @@ module cp_engine (
 
     // ── Weight write port (from bus adapter, Phase B01 runtime reload) ──────
     // Conv weights live in 8 per-oc M10K RAMs (one per output channel), each
-    // 40-bit × 17 words (word = layer_base + ic). To load one 40-bit entry the
+    // 40-bit × 32 words (word = layer_base + ic). To load one 40-bit entry the
     // host issues TWO 32-bit writes (lo = bits[31:0], hi = bits[39:32]); the bus
     // adapter assembles them and pulses w_wr_en for the whole 40-bit word.
     //   w_wr_oc   : which of the 8 per-oc RAMs to write (0..7)
-    //   w_wr_word : RAM word index (0..16) = layer_base + ic
+    //   w_wr_word : RAM word index (0..31) = layer_base + ic
     //   w_wr_data : full 40-bit packed 5-tap entry
     // Bias write (b_store FF, 32 × INT32): b_wr_en + b_wr_addr + b_wr_data.
     input  wire        w_wr_en,
@@ -77,7 +79,12 @@ module cp_engine (
     input  wire [39:0] w_wr_data,
     input  wire        b_wr_en,
     input  wire [4:0]  b_wr_addr,
-    input  wire [31:0] b_wr_data
+    input  wire [31:0] b_wr_data,
+
+    // ── Topology config: weight-RAM word base per layer (4 × 5-bit) ─────────
+    // Replaces the hard-coded {0,1,5,9} bases so a runtime-reconfigured channel
+    // layout (driver-loaded) lands its weights at the correct RAM words.
+    input  wire [19:0] cfg_base
 );
 
     // ── Layer state encoding (must match cnn_controller) ──────────────────
@@ -188,12 +195,13 @@ module cp_engine (
     // CONV1=2→0, CONV2=3→1, CONV3=4→2, CONV4=5→3
     wire [1:0] layer_idx = layer_state[1:0] - 2'd2;
 
-    // ── Conv weight RAM: 8 per-oc M10K, 40-bit × 17 words ───────────────────
+    // ── Conv weight RAM: 8 per-oc M10K, 40-bit × 32 words ───────────────────
     // Phase B01: weights are runtime-loadable from the bus (was 4 per-layer FF
-    // ROMs read async). One M10K per output channel (oc), each 17 words deep:
+    // ROMs read async). One M10K per output channel (oc), each 32 words deep:
     //   word index = layer_base[layer] + ic
-    //     Conv1 base=0 (1 word, ic=0)      Conv2 base=1 (4 words, ic=0..3)
-    //     Conv3 base=5 (4 words, ic=0..3)  Conv4 base=9 (8 words, ic=0..7)  → 17 total
+    //     Default Chapman: Conv1 base=0 (1w)  Conv2 base=1 (4w)
+    //       Conv3 base=5 (4w)  Conv4 base=9 (8w)  → 17 words used.
+    //     MAX in_ch=(8,8,8,8): bases {0,8,16,24} → 32 words (depth-limited).
     // Read (datapath): all 8 RAMs read the SAME word address {layer_base+a} → 8
     //   oc weights out in parallel. M10K is SYNCHRONOUS read: address issued at
     //   cycle N (combinational from `a`/`layer_state`), q valid at cycle N+1.
@@ -201,14 +209,17 @@ module cp_engine (
     //   and alignment with mux_s1 are unchanged (both arrive at N+1) → bit-exact.
     // Write (bus): w_wr_oc selects one of the 8 RAMs, full 40-bit word, no
     //   read-modify-write needed (each oc is its own RAM).
-    (* ramstyle = "M10K" *) reg [39:0] w_ram0 [0:16];
-    (* ramstyle = "M10K" *) reg [39:0] w_ram1 [0:16];
-    (* ramstyle = "M10K" *) reg [39:0] w_ram2 [0:16];
-    (* ramstyle = "M10K" *) reg [39:0] w_ram3 [0:16];
-    (* ramstyle = "M10K" *) reg [39:0] w_ram4 [0:16];
-    (* ramstyle = "M10K" *) reg [39:0] w_ram5 [0:16];
-    (* ramstyle = "M10K" *) reg [39:0] w_ram6 [0:16];
-    (* ramstyle = "M10K" *) reg [39:0] w_ram7 [0:16];
+    // Depth = 32 words/oc (5-bit word index). Sized for the MAX topology
+    // in_ch=(8,8,8,8): bases {0,8,16,24}, top word = 24+7 = 31. The default
+    // Chapman topology (1,4,4,8) uses only words 0..16; the rest stay unused.
+    (* ramstyle = "M10K" *) reg [39:0] w_ram0 [0:31];
+    (* ramstyle = "M10K" *) reg [39:0] w_ram1 [0:31];
+    (* ramstyle = "M10K" *) reg [39:0] w_ram2 [0:31];
+    (* ramstyle = "M10K" *) reg [39:0] w_ram3 [0:31];
+    (* ramstyle = "M10K" *) reg [39:0] w_ram4 [0:31];
+    (* ramstyle = "M10K" *) reg [39:0] w_ram5 [0:31];
+    (* ramstyle = "M10K" *) reg [39:0] w_ram6 [0:31];
+    (* ramstyle = "M10K" *) reg [39:0] w_ram7 [0:31];
 
     // Bias: INT32, 8 oc × 4 layer = 32 entries, addr = oc*4 + layer_idx
     (* ramstyle = "MLAB" *) reg signed [31:0] b_store [0:31];
@@ -252,10 +263,9 @@ module cp_engine (
 
     // ── Conv weight read: word = layer_base + a, issued cycle N (async addr) ──
     // layer_base per layer (CONV1=0, CONV2=1, CONV3=5, CONV4=9). a = ic counter.
-    wire [4:0] w_layer_base = (layer_state == CONV1) ? 5'd0 :
-                              (layer_state == CONV2) ? 5'd1 :
-                              (layer_state == CONV3) ? 5'd5 :
-                              (layer_state == CONV4) ? 5'd9 : 5'd0;
+    // layer_idx (0..3) already derived above selects the per-layer base from
+    // cfg_base (driver-loadable; reset default = {0,1,5,9} for Chapman).
+    wire [4:0] w_layer_base = cfg_base[layer_idx*5 +: 5];
     wire [4:0] w_rd_word = w_layer_base + {1'b0, a[3:0]};
 
     // M10K synchronous read: q registered 1 cycle (this IS the old w_packed stage).
@@ -289,7 +299,7 @@ module cp_engine (
             cp_block u_cp (
                 .clk           (clk),
                 .rst           (rst),
-                .taps_in       (mux_s1),
+                .x_in          (mux_s1),
                 .w             (w_packed[oc]),
                 .bias_in       (b_cur[oc]),
                 // Pipeline depth from mux_comb to acc-register-update edge = 5 cycles

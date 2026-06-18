@@ -6,14 +6,22 @@
 // touching verified datapath/control logic.
 //
 // Modules instantiated (copied verbatim from old top, logic unchanged):
-//   input_sram        — 2500×8b, stores raw ECG input
 //   ping_pong_sram    — 2 sets × 8 banks × 500 entries, inter-layer feature maps
 //   cp_engine         — 8 CP blocks (Conv1..4)
 //   gap_fc_argmax     — GAP/FC/Argmax post-processing
 //   cnn_controller    — Unified FSM
 //
-// Interface = the exact 8 wires the bus adapter (avalon_slave) talks to:
-//   in : sram_wr_addr / sram_din / sram_we   (load ECG into input_sram)
+// input_sram lives in the WRAPPER, not here. The split is along the I/O write
+// boundary: input_sram is the input buffer the host WRITES (an I/O concern),
+// so it sits outside the compute core. The core only READS it as an external
+// memory subsystem via input_rd_addr → input_dout (1-cycle synchronous, same
+// as before). ping_pong stays inside the core: it is compute scratch the host
+// never touches. This keeps "compute latency" (start→done) cleanly scoped to
+// the core and excludes the host's input-load phase.
+//
+// Interface with the bus adapter / wrapper:
+//   out: input_rd_addr  → wrapper input_sram read address
+//   in : input_dout     ← wrapper input_sram read data (1-cycle latency)
 //   in : start                               (kick off inference)
 //   out: busy / done / result                (status + class 0..3)
 
@@ -21,10 +29,9 @@ module ecg_core (
     input  wire        clk,
     input  wire        rst,         // synchronous reset (active high)
 
-    // ── Input loading (from bus adapter) ───────────────────────────────
-    input  wire [11:0] sram_wr_addr,
-    input  wire [7:0]  sram_din,
-    input  wire        sram_we,
+    // ── Input SRAM read port (input_sram lives in the wrapper) ─────────
+    output wire [11:0] input_rd_addr,
+    input  wire [7:0]  input_dout,
 
     // ── Weight load (from bus adapter, Phase B01) ──────────────────────
     input  wire        w_wr_en,
@@ -38,17 +45,17 @@ module ecg_core (
     input  wire [5:0]  fcw_wr_addr,
     input  wire [31:0] fcw_wr_data,
 
+    // ── Topology config (from bus adapter, packed per-layer) ───────────
+    input  wire [15:0] cfg_in_ch,    // 4 × 4-bit
+    input  wire [31:0] cfg_cp_en,    // 4 × 8-bit
+    input  wire [19:0] cfg_nb,       // 4 × 5-bit
+    input  wire [19:0] cfg_base,     // 4 × 5-bit
+
     // ── Control / status (with bus adapter) ────────────────────────────
     input  wire        start,
     output wire        busy,
     output wire        done,
-    output wire [1:0]  result,
-
-    // ── Overlap reload status ──────────────────────────────────────────
-    // 1 once Conv1 has released input_sram (state in CONV2..DONE). While high,
-    // an external master may write the next window's samples into input_sram.
-    // See cnn_controller.isram_free for the driver-side safety contract.
-    output wire        isram_free
+    output wire [1:0]  result
 );
 
     // ── Controller outputs ─────────────────────────────────────────────
@@ -71,9 +78,6 @@ module ecg_core (
     wire [1:0]  ctrl_argmax_step;
     wire [2:0]  ctrl_layer_state;
 
-    // ── Input SRAM ─────────────────────────────────────────────────────
-    wire [7:0]  input_sram_dout;
-
     // ── Ping-Pong SRAM ─────────────────────────────────────────────────
     wire [63:0] pp_dout;            // Ping output packed: pp_dout[ch*8+:8]
 
@@ -92,15 +96,8 @@ module ecg_core (
     // cp_engine exposes pong_we[0] as the representative pool_write signal.
     assign cp_pool_write = cp_pong_we[0];
 
-    // ── input_sram ─────────────────────────────────────────────────────
-    input_sram u_isram (
-        .clk    (clk),
-        .wr_addr(sram_wr_addr),
-        .din    (sram_din),
-        .we     (sram_we),
-        .rd_addr(cp_sram_rd_addr[11:0]),
-        .dout   (input_sram_dout)
-    );
+    // ── input_sram read port → wrapper (input_sram is instantiated there) ──
+    assign input_rd_addr = cp_sram_rd_addr[11:0];
 
     // ── ping_pong_sram ─────────────────────────────────────────────────
     // Read address: cp_engine during CONV1..4, gap_fc_argmax during GAP_FC_S
@@ -133,7 +130,7 @@ module ecg_core (
         .cp_en            (ctrl_cp_en),
         .layer_state      (ctrl_layer_state),
         .pool_rst         (ctrl_pool_rst),
-        .input_sram_dout  (input_sram_dout),
+        .input_sram_dout  (input_dout),
         .ping_dout        (pp_dout),
         .pong_din         (cp_pong_din),
         .pong_we          (cp_pong_we),
@@ -145,7 +142,8 @@ module ecg_core (
         .w_wr_data        (w_wr_data),
         .b_wr_en          (b_wr_en),
         .b_wr_addr        (b_wr_addr),
-        .b_wr_data        (b_wr_data)
+        .b_wr_data        (b_wr_data),
+        .cfg_base         (cfg_base)
     );
 
     // ── gap_fc_argmax ──────────────────────────────────────────────────
@@ -157,6 +155,7 @@ module ecg_core (
         .fc_step      (ctrl_fc_step),
         .argmax_step  (ctrl_argmax_step),
         .ping_dout    (pp_dout),
+        .out_ch_mask  (cfg_cp_en[3*8 +: 8]),   // Conv4 active-output mask
         .gap_rd_addr  (gap_rd_addr),
         .fcw_wr_en    (fcw_wr_en),
         .fcw_wr_addr  (fcw_wr_addr),
@@ -170,6 +169,9 @@ module ecg_core (
         .rst          (rst),
         .start        (start),
         .pool_write   (cp_pool_write),
+        .cfg_in_ch    (cfg_in_ch),
+        .cfg_cp_en    (cfg_cp_en),
+        .cfg_nb       (cfg_nb),
         .a            (ctrl_a),
         .t            (ctrl_t),
         .shift_en     (ctrl_shift_en),
@@ -191,8 +193,7 @@ module ecg_core (
         .layer_state  (ctrl_layer_state),
         .busy         (busy),
         .done         (done),
-        .result       (result),
-        .isram_free   (isram_free)
+        .result       (result)
     );
 
 endmodule

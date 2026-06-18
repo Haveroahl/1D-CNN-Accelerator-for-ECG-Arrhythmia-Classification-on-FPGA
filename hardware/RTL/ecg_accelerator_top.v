@@ -30,7 +30,10 @@ module ecg_accelerator_top (
     wire        busy;
     wire        done;
     wire [1:0]  result;
-    wire        isram_free;   // core: input_sram free to reload (CONV2..DONE)
+
+    // ── input_sram read port (core ↔ wrapper-resident input_sram) ──────
+    wire [11:0] input_rd_addr;
+    wire [7:0]  input_dout;
 
     // ── Weight-load wires (avalon_slave → ecg_core, Phase B01) ─────────
     wire        w_wr_en;
@@ -43,6 +46,12 @@ module ecg_accelerator_top (
     wire        fcw_wr_en;
     wire [5:0]  fcw_wr_addr;
     wire [31:0] fcw_wr_data;
+
+    // ── Topology config (avalon_slave → ecg_core) ─────────────────────
+    wire [15:0] cfg_in_ch;
+    wire [31:0] cfg_cp_en;
+    wire [19:0] cfg_nb;
+    wire [19:0] cfg_base;
 
     // ── avalon_slave (bus adapter) ─────────────────────────────────────
     avalon_slave u_avs (
@@ -60,7 +69,6 @@ module ecg_accelerator_top (
         .busy         (busy),
         .done         (done),
         .result       (result),
-        .isram_free   (isram_free),
         .w_wr_en      (w_wr_en),
         .w_wr_oc      (w_wr_oc),
         .w_wr_word    (w_wr_word),
@@ -70,21 +78,33 @@ module ecg_accelerator_top (
         .b_wr_data    (b_wr_data),
         .fcw_wr_en    (fcw_wr_en),
         .fcw_wr_addr  (fcw_wr_addr),
-        .fcw_wr_data  (fcw_wr_data)
+        .fcw_wr_data  (fcw_wr_data),
+        .cfg_in_ch    (cfg_in_ch),
+        .cfg_cp_en    (cfg_cp_en),
+        .cfg_nb       (cfg_nb),
+        .cfg_base     (cfg_base)
+    );
+
+    // ── input_sram (input I/O buffer — host writes, core reads) ────────
+    input_sram u_isram (
+        .clk    (clk),
+        .wr_addr(sram_wr_addr),
+        .din    (sram_din),
+        .we     (sram_we),
+        .rd_addr(input_rd_addr),
+        .dout   (input_dout)
     );
 
     // ── ecg_core (bus-agnostic accelerator) ────────────────────────────
     ecg_core u_core (
         .clk          (clk),
         .rst          (rst),
-        .sram_wr_addr (sram_wr_addr),
-        .sram_din     (sram_din),
-        .sram_we      (sram_we),
+        .input_rd_addr(input_rd_addr),
+        .input_dout   (input_dout),
         .start        (start),
         .busy         (busy),
         .done         (done),
         .result       (result),
-        .isram_free   (isram_free),
         .w_wr_en      (w_wr_en),
         .w_wr_oc      (w_wr_oc),
         .w_wr_word    (w_wr_word),
@@ -94,7 +114,11 @@ module ecg_accelerator_top (
         .b_wr_data    (b_wr_data),
         .fcw_wr_en    (fcw_wr_en),
         .fcw_wr_addr  (fcw_wr_addr),
-        .fcw_wr_data  (fcw_wr_data)
+        .fcw_wr_data  (fcw_wr_data),
+        .cfg_in_ch    (cfg_in_ch),
+        .cfg_cp_en    (cfg_cp_en),
+        .cfg_nb       (cfg_nb),
+        .cfg_base     (cfg_base)
     );
 
 endmodule

@@ -14,6 +14,13 @@ module cnn_controller (
     // All active blocks write simultaneously — use ch0 as representative
     input  wire        pool_write,
 
+    // ── Topology config (packed per-layer, from avalon_slave) ──────────
+    // Layer L = bit-slice [L*W +: W]. L0=Conv1 .. L3=Conv4. Reset defaults
+    // in avalon_slave reproduce the original (1,4,4,8)/(0F,0F,FF,FF)/(8,6,6,7).
+    input  wire [15:0] cfg_in_ch,    // 4 × 4-bit
+    input  wire [31:0] cfg_cp_en,    // 4 × 8-bit
+    input  wire [19:0] cfg_nb,       // 4 × 5-bit
+
     // Outputs to cp_engine
     output reg  [3:0]  a,             // channel counter 0..IN_CH-1
     output reg  [11:0] t,             // output position counter
@@ -42,26 +49,7 @@ module cnn_controller (
     output reg  [2:0]  layer_state,   // exposed for cp_engine MUX and top-level
     output reg         busy,          // 1 while not IDLE/DONE
     output reg         done,          // 1-cycle pulse
-    output reg  [1:0]  result,        // latched argmax class index
-
-    // ── Overlap reload support ─────────────────────────────────────────────
-    // isram_free = 1 once Conv1 has finished reading input_sram (state has left
-    // CONV1 into CONV2). From that point Conv2/3/4 read ping_pong only — the
-    // input_sram is no longer accessed by the datapath, so an external master
-    // may write the NEXT window's 2500 samples into it while THIS inference
-    // finishes (overlap load with compute).
-    //
-    // Cleared back to 0 on the next `start` (Conv1 of the new window is about to
-    // read input_sram again). Held through GAP_FC_S/DONE_S so the write window
-    // spans from CONV2 entry up to (and including) the idle DONE_S state.
-    //
-    // SAFETY (single-buffer, enforced by the external driver, NOT by the core):
-    //   - Only write input_sram while isram_free == 1 (avoids read/write
-    //     collision with Conv1 of the current window).
-    //   - Only assert `start` for window N+1 AFTER all 2500 bytes are written
-    //     (single buffer: N+1 overwrites N in place; a premature start would run
-    //     Conv1 on a half-written buffer).
-    output reg         isram_free
+    output reg  [1:0]  result         // latched argmax class index
 );
 
     // ── FSM state encoding ─────────────────────────────────────────────────
@@ -81,11 +69,15 @@ module cnn_controller (
                ARGMAX_SUB = 3'd4,
                DONE_SUB   = 3'd5;
 
-    // NB constants (QAT calibration: input_shift=2, w_shift conv1..4 = 6,6,6,7)
-    localparam NB1 = 5'd8,   // conv1: input_shift(2) + w_shift(6) = 8
-               NB2 = 5'd6,   // conv2: w_shift(6)
-               NB3 = 5'd6,   // conv3: w_shift(6)
-               NB4 = 5'd7;   // conv4: w_shift(7)
+    // NB / in_ch / cp_en are now runtime-config (see cfg_* ports + accessors
+    // below). Default Chapman values (nb=8,6,6,7) come from avalon_slave reset.
+
+    // ── Per-layer config accessors (li = 0..3 for Conv1..4) ────────────────
+    // Replaces the old hard-coded in_ch / cp_en / nb literals. The transition
+    // block selects li for the NEXT layer; LOAD_INPUT uses li=0 (Conv1).
+    function [3:0] cfg_in_ch_of; input [1:0] li; cfg_in_ch_of = cfg_in_ch[li*4 +: 4]; endfunction
+    function [7:0] cfg_cp_en_of; input [1:0] li; cfg_cp_en_of = cfg_cp_en[li*8 +: 8]; endfunction
+    function [4:0] cfg_nb_of;    input [1:0] li; cfg_nb_of    = cfg_nb   [li*5 +: 5]; endfunction
 
     // ── Derived signals ────────────────────────────────────────────────────
     // IN_LEN per layer: Conv1=2500, Conv2=500, Conv3=100, Conv4=20
@@ -135,7 +127,6 @@ module cnn_controller (
             fc_step      <= 4'd0;
             argmax_step  <= 2'd0;
             prefetch_cnt <= 3'd0;
-            isram_free   <= 1'b0;
         end else begin
             // Defaults (overridden below)
             srw_rst  <= 1'b0;
@@ -157,13 +148,12 @@ module cnn_controller (
                 // Immediately transition to CONV1.
                 LOAD_INPUT: begin
                     layer_state  <= CONV1;
-                    isram_free   <= 1'b0;   // Conv1 about to read input_sram again
-                    in_ch        <= 4'd1;
+                    in_ch        <= cfg_in_ch_of(2'd0);
                     in_len       <= 12'd2500;
                     out_len      <= 12'd500;
-                    nb           <= NB1;
+                    nb           <= cfg_nb_of(2'd0);
                     relu_en      <= 1'b0;
-                    cp_en        <= 8'h0F;
+                    cp_en        <= cfg_cp_en_of(2'd0);
                     bank_sel     <= 1'b0;
                     a            <= 4'd0;
                     t            <= 12'd0;
@@ -226,33 +216,30 @@ module cnn_controller (
                         case (layer_state)
                             CONV1: begin
                                 layer_state <= CONV2;
-                                // Conv1 done reading input_sram; Conv2+ read
-                                // ping_pong only → input_sram now free to reload.
-                                isram_free  <= 1'b1;
-                                in_ch       <= 4'd4;
+                                in_ch       <= cfg_in_ch_of(2'd1);
                                 in_len      <= 12'd500;
                                 out_len     <= 12'd100;
-                                nb          <= NB2;
+                                nb          <= cfg_nb_of(2'd1);
                                 relu_en     <= 1'b0;
-                                cp_en       <= 8'h0F;
+                                cp_en       <= cfg_cp_en_of(2'd1);
                             end
                             CONV2: begin
                                 layer_state <= CONV3;
-                                in_ch       <= 4'd4;
+                                in_ch       <= cfg_in_ch_of(2'd2);
                                 in_len      <= 12'd100;
                                 out_len     <= 12'd20;
-                                nb          <= NB3;
+                                nb          <= cfg_nb_of(2'd2);
                                 relu_en     <= 1'b0;
-                                cp_en       <= 8'hFF;
+                                cp_en       <= cfg_cp_en_of(2'd2);
                             end
                             CONV3: begin
                                 layer_state <= CONV4;
-                                in_ch       <= 4'd8;
+                                in_ch       <= cfg_in_ch_of(2'd3);
                                 in_len      <= 12'd20;
                                 out_len     <= 12'd4;
-                                nb          <= NB4;
+                                nb          <= cfg_nb_of(2'd3);
                                 relu_en     <= 1'b1;
-                                cp_en       <= 8'hFF;
+                                cp_en       <= cfg_cp_en_of(2'd3);
                             end
                             CONV4: begin
                                 layer_state  <= GAP_FC_S;

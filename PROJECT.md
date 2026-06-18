@@ -124,7 +124,7 @@ python export_weights_int8.py `
 
 ---
 
-## Trạng thái tiến độ (cập nhật 2026-06-04)
+## Trạng thái tiến độ (cập nhật 2026-06-18)
 
 ### Software — ✅ DONE (baseline)
 - [x] Re-prune model → channels (4,4,8,8) — `best_model_pruned.pth`
@@ -139,6 +139,14 @@ python export_weights_int8.py `
 - [x] Latency đo thật: **5216 cycles ≈ 52.16 µs @ 100 MHz** (deterministic)
 - [x] Throughput: ~19,200 inference/s @ 100 MHz
 - [x] SDC 100/150 MHz chuẩn bị sẵn (chưa synthesis)
+
+### Hardware — ✅ DONE (runtime-reconfigurable topology, 2026-06-17)
+> Chi tiết: @hardware/System_Design.md mục "Runtime-Reconfigurable Topology"
+- [x] CONFIG window (avalon_slave) nạp per-layer in_ch/cp_en/nb/base lúc runtime, reset=Chapman
+- [x] Weight RAM depth 17→32 (cover MAX in_ch=8,8,8,8); GAP `out_ch_mask` cho Conv4 out_ch<8
+- [x] `tb_topo.v` — full inference **bit-exact 7/7**: MIN (2,2,2,2) + MAX (8,8,8,8) + 4 mixed
+- [x] `tb_top.v` TC08/09/10 — config write/consume/recover + GAP mask + word biên 31 (15/15 PASS)
+- [x] Golden generator topology tùy ý: `software/python/gen_topo_golden.py`
 
 ---
 
@@ -160,32 +168,36 @@ python export_weights_int8.py `
 - [x] Phase A — ✅ DONE: dùng **PTB-XL** (không MIT-BIH) — 19,952 records, 500→250Hz, lead II → `cross_eval/ptbxl_cross_eval.json`
 - [x] Phase A — ✅ DONE: 6 modes C1–C6 + U0. C1 94.46% / zero-shot 77.1% / linear-probe 92.6% / full-FT 93.3%. **C2==C6 → quant drop = 0%** (toàn bộ drop = distribution shift)
 
-### Block 2 — Windows (Hardware, ~1 tuần)
+### Block 2 — Windows (Hardware, ~1 tuần) — ✅ DONE
 
-**Phase B — tách core/bus + wrapper (LÀM NGAY, để setup HPS + đẩy xuống board)**
-- [ ] Phase B — tách `ecg_core.v` (core thuần: isram+pp+cpe+gfa+ctrl, interface = 8 dây sram_wr_addr/din/we + start/busy/done/result) khỏi bus
-- [ ] Phase B — `ecg_accelerator_top.v` co thành wrapper mỏng: instantiate `avalon_slave` (bus adapter) + `ecg_core`, nối 8 dây. `avalon_slave.v` GIỮ NGUYÊN — dùng chung Phase C (chân ảo) và Phase D (Qsys/HPS bridge)
-- [ ] Phase B — refactor thuần cấu trúc (copy/paste, KHÔNG đổi logic). Reset giữ nguyên: core dùng `rst` sync, bus dùng `rst_n` async
-- [ ] Phase B — regression sim: `tb_top.v` cũ phải 21/21 bit-exact PASS y như trước (thước đo refactor không hỏng gì); thêm `tb_core.v` drive thẳng start/sram_we (không qua bus)
+**Phase B — tách core/bus + wrapper — ✅ DONE**
+- [x] Phase B — tách `ecg_core.v` (core thuần: isram+pp+cpe+gfa+ctrl, interface 8 dây sram_wr_addr/din/we + start/busy/done/result) khỏi bus
+- [x] Phase B — `ecg_accelerator_top.v` co thành wrapper mỏng: `avalon_slave` (bus adapter) + `ecg_core`. `avalon_slave.v` dùng chung Phase C (chân ảo) và Phase D
+- [x] Phase B — regression sim: `tb_top.v` 21/21 bit-exact PASS sau refactor
 
-**Phase B01 — weight ROM → RAM reload (NOTE, XỬ LÝ SAU)**
-> Tách ra khỏi Phase B. Là enabling mechanism cho C5 (Avalon weight reload) + C3 cross-dataset on-hardware. Làm sau khi core đã tách + HPS chạy được trên board với weight $readmemh.
-- [ ] Phase B01 — refactor weight FF/ROM ($readmemh) → `weight_ram.v` dual-port M10K, write từ Avalon
-- [ ] Phase B01 — mở rộng avalon_slave 5-bit → 12-bit address (cover ~580 INT8 weight word)
-- [ ] Phase B01 — regression: 21/21 bit-exact PASS với weight load via Avalon (không $readmemh)
+**Phase B01 — weight ROM → RAM reload — ✅ DONE (commit 14cac23, 6e1eb9f)**
+> Enabling mechanism cho C5 (Avalon weight reload) + C3 cross-dataset on-hardware.
+- [x] Phase B01 — weight FF/ROM ($readmemh) → weight RAM dual-port M10K, write từ Avalon (CONFIG window)
+- [x] Phase B01 — mở rộng avalon_slave address + DATA WINDOW cho burst weight/ECG load
+- [x] Phase B01 — regression: 21/21 bit-exact PASS với weight load via Avalon
+- [x] cp_block tách 3 submodule (cp_mac/cp_accumulate_rescale/cp_pool) — bit-exact, commit c2de533 (2026-06-18)
 
-**Phase C — Synthesis + Power (✅ DONE)**
-- [x] Phase C — ✅ DONE: Quartus Compile thật (5CSXFC6D6F31C6) — DSP 28/112 (25%), ALM 2261 (5%), Reg 3196, **Timing PASS @100MHz** (slack +0.508ns, Fmax ≈105MHz)
+**Phase C — Synthesis + Power — ✅ DONE**
+- [x] Phase C — ✅ DONE: Quartus Compile thật (5CSXFC6D6F31C6, re-compile 2026-06-17 sau weight RAM) — DSP 28/112 (25%), **ALM 2851 (7%), Reg 4843**, Timing PASS @100MHz (slack +3.43ns, **Fmax ≈104MHz**). Số cũ ALM 2261/Reg 3196 là trước weight RAM — lỗi thời.
+- [x] Phase C — ✅ DONE: Fmax số dùng cho paper (theo PAPER_DATA.md): **DSE = 104.85MHz** (so công bằng với SIMD baseline), **weight-RAM Phase B01 = 108.94MHz**, **board jtag_top ~125MHz** (+2.202ns@100MHz). Timing fix fold bias+round_add (commit 32f7a11) cho internal reg-to-reg ~137.6MHz nhưng **KHÔNG dùng làm Fmax công bố** (đó là internal path, không phải số toàn thiết kế).
 - [x] Phase C — ✅ DONE: PowerPlay+VCD thật (95.6% toggle) — Total 623mW / Dyn 198mW / Static 413mW → **Energy/inf 10.3µJ dyn / 32.5µJ total**. DSP = 68% dynamic → nối thẳng C1
 
-**Phase D — On-board DE10-Standard (HPS)**
-- [ ] Phase D — dựng Qsys `soc_system` từ `ecg_core_hw.tcl` (component bọc `ecg_accelerator_top`) + HPS hard IP, đổi top synth → `soc_top.v`, thêm PLL 50→100MHz
-- [ ] Phase D — HPS driver C (`ecg_classify.c`): mmap h2f_lw bridge, nạp ECG → start → poll done → đọc result
-- [ ] Phase D — verify on-board accuracy ~94.65% (weight $readmemh, Chapman). Load PTB-XL weight → match Phase A là việc của Phase B01
+**Phase D — On-board DE10-Standard — 🟡 JTAG DONE, UART chờ phần cứng**
+> Quartus Lite KHÔNG có IP HPS Cyclone V → Phase D chuyển HPS → JTAG-to-Avalon + System Console. soc_top.v/HPS giữ làm tham khảo.
+- [x] Phase D — JTAG-to-Avalon (`jtag_top.v`) + System Console driver: chạy thật trên DE10, **94.27% (1004/1065)** khớp Python 94.65%. JTAG chậm/dễ rớt kênh nhưng đã chứng minh "FPGA-deployed".
+- [x] Phase D — variant Nios V/m RISC-V soft-core (Quartus 25.1 bỏ Nios II), on-chip RAM bare-metal — sim 3/3 PASS, compile PASS
+- [~] Phase D — variant UART (PC serial → ecg_core, không JTAG/Nios/HPS): RTL+pin+host script READY, merged main — **chờ module USB-TTL 3.3V** để chạy board
+- [x] Phase D — PTB-XL on-RTL: 1 bitstream chạy cả Chapman + PTB-XL chỉ bằng reconfig nb + weight reload (bit-exact, không cần board)
 
-### Block 3 — Writing (any env, ~1 tuần)
-- [ ] Phase E — bảng SoTA 6-8 papers ECG-FPGA + Pareto chart
-- [ ] Phase F — draft 8-12 trang Electronics MDPI template
+### Block 3 — Writing (any env, ~1 tuần) — 🔲 CÒN LẠI (đường găng)
+- [~] Phase E — SoTA tables (verified) → `SOTA_TABLE.md`: Bảng A (5 model Chapman, cột Params + Beat/Rhythm) + Bảng B (10 FPGA biomedical, cột Freq + Throughput + Beat/Rhythm). Liu verify bit số (INT8 92.95% < ta 94.65%). Pareto chart 🔲 chưa vẽ.
+- [~] Phase E01 — Tài liệu tham khảo (≥15) → `paper/REFERENCES.md`: **17 mục**, định dạng ICDV (tác giả/tiêu đề/nguồn in nghiêng/vol-no-pp/năm + DOI/ISSN/ISBN). 9/17 có DOI ✅, 8 mục 🔲 cần bổ sung citation đầy đủ. Hạn chế link Internet (arXiv → ưu tiên bản published).
+- [~] Phase F — draft ICDV ~6 trang (chỉ bản production 8-PE, KHÔNG SIMD/DSE) → `paper/ICDV_draft.md`. Venue = ICDV (xem PAPER_DATA.md), KHÔNG phải MDPI.
 - [ ] Phase F — GitHub public + Zenodo DOI reproducibility artifact
 
 ---
@@ -201,7 +213,7 @@ python export_weights_int8.py `
 - **Simulation tool**: ModelSim/Questa (Windows) — RTL trong `hardware/`, sim trong `hardware/fpga/simulation/questa/`
 - **Cross-dataset = PTB-XL** (không phải MIT-BIH — đã chuyển vì PTB-XL 500Hz/10s sẵn, không cần resample 360Hz)
 - **`hardware/` = production** (8 modules, 21/21 bit-exact, synth thật). **`hardware_v3/` = skeleton reference** fully-mapped mirror Liu 2023 — KHÔNG thay production, chỉ để so sánh kiến trúc trong paper.
-- **`hardware/fpga/soc/`** = template Qsys/HPS (soc_top.v) cho Phase D — chưa dựng/chạy board.
+- **`hardware/fpga/soc/`** = template Qsys/HPS (soc_top.v) — KHÔNG dùng (Quartus Lite không có HPS IP). Phase D thực tế dùng JTAG-to-Avalon (`jtag_top.v`) đã chạy board thật 94.27%, + variant Nios V/m + UART.
 - **`avalon_slave.v` vẫn cần khi dùng HPS** — Qsys/HPS chỉ tự sinh interconnect + h2f bridge + decode địa chỉ, KHÔNG diễn dịch thanh ghi riêng của core (địa chỉ nào nạp SRAM, bit nào là start, đọc đâu ra done/result). Phần đó là `avalon_slave.v` thủ công, đóng vai **bus adapter** dùng chung Phase C/D. Chỉ bỏ được nếu đổi kiến trúc sang PIO core hoặc On-Chip RAM+DMA (đều là refactor lớn → không làm).
 - **Quartus install**: `D:\altera_lite\25.1std` — project `hardware/fpga/ecg_accelerator_top.qsf` (top = `ecg_accelerator_top` cho Phase C; đổi sang `soc_top` khi Phase D).
 - **Toàn bộ dự án chạy trong `d:\Thesis101`** — không tách Windows/WSL.

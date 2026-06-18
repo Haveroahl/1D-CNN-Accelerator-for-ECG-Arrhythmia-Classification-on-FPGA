@@ -1,0 +1,192 @@
+{
+  "baseline_int8": {
+    "acc": 0.9465,
+    "f1": 0.9396,
+    "conv_weights": 580,
+    "topology": [
+      4,
+      4,
+      8,
+      8
+    ],
+    "note": "documented deployed model"
+  },
+  "recipe": {
+    "float_phases": [
+      [
+        30,
+        0.001
+      ],
+      [
+        20,
+        0.0001
+      ]
+    ],
+    "qat_epochs": 30,
+    "qat_lr": 0.0001,
+    "quant": "power-of-2 round-half-up"
+  },
+  "points": [
+    {
+      "topology": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "anchor": false,
+      "float": {
+        "acc": 0.784037558685446,
+        "f1": 0.7369962042910572
+      },
+      "int8_p2": {
+        "acc": 0.7849765258215963,
+        "f1": 0.7345775647761674
+      },
+      "conv_weights": 70,
+      "w_shift": {
+        "conv1": 6,
+        "conv2": 7,
+        "conv3": 7,
+        "conv4": 7,
+        "fc": 7
+      },
+      "nb": {
+        "conv1": 9,
+        "conv2": 7,
+        "conv3": 7,
+        "conv4": 7
+      },
+      "input_shift": 3
+    },
+    {
+      "topology": [
+        2,
+        2,
+        4,
+        4
+      ],
+      "anchor": false,
+      "float": {
+        "acc": 0.8779342723004695,
+        "f1": 0.8629809786350324
+      },
+      "int8_p2": {
+        "acc": 0.8816901408450705,
+        "f1": 0.8648988368912696
+      },
+      "conv_weights": 150,
+      "w_shift": {
+        "conv1": 6,
+        "conv2": 7,
+        "conv3": 7,
+        "conv4": 7,
+        "fc": 7
+      },
+      "nb": {
+        "conv1": 8,
+        "conv2": 7,
+        "conv3": 7,
+        "conv4": 7
+      },
+      "input_shift": 2
+    },
+    {
+      "topology": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "anchor": false,
+      "float": {
+        "acc": 0.9220657276995305,
+        "f1": 0.9128401719217022
+      },
+      "int8_p2": {
+        "acc": 0.9107981220657277,
+        "f1": 0.9005419851887243
+      },
+      "conv_weights": 260,
+      "w_shift": {
+        "conv1": 7,
+        "conv2": 7,
+        "conv3": 6,
+        "conv4": 8,
+        "fc": 7
+      },
+      "nb": {
+        "conv1": 9,
+        "conv2": 7,
+        "conv3": 6,
+        "conv4": 8
+      },
+      "input_shift": 2
+    },
+    {
+      "topology": [
+        4,
+        4,
+        8,
+        8
+      ],
+      "anchor": true,
+      "float": {
+        "acc": 0.9408450704225352,
+        "f1": 0.9335507370720382
+      },
+      "int8_p2": {
+        "acc": 0.9464788732394366,
+        "f1": 0.9395966635571101
+      },
+      "conv_weights": 580,
+      "w_shift": {
+        "conv1": 6,
+        "conv2": 6,
+        "conv3": 6,
+        "conv4": 7,
+        "fc": 8
+      },
+      "nb": {
+        "conv1": 8,
+        "conv2": 6,
+        "conv3": 6,
+        "conv4": 7
+      },
+      "input_shift": 2
+    },
+    {
+      "topology": [
+        8,
+        8,
+        8,
+        8
+      ],
+      "anchor": false,
+      "float": {
+        "acc": 0.923943661971831,
+        "f1": 0.9152966278730311
+      },
+      "int8_p2": {
+        "acc": 0.9286384976525821,
+        "f1": 0.9210621728315247
+      },
+      "conv_weights": 1000,
+      "w_shift": {
+        "conv1": 7,
+        "conv2": 7,
+        "conv3": 7,
+        "conv4": 8,
+        "fc": 7
+      },
+      "nb": {
+        "conv1": 9,
+        "conv2": 7,
+        "conv3": 7,
+        "conv4": 8
+      },
+      "input_shift": 2
+    }
+  ],
+  "wall_time_s": 3641.9
+}

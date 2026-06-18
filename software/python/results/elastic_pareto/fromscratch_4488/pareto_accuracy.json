@@ -1,0 +1,64 @@
+{
+  "baseline_int8": {
+    "acc": 0.9465,
+    "f1": 0.9396,
+    "conv_weights": 580,
+    "topology": [
+      4,
+      4,
+      8,
+      8
+    ],
+    "note": "documented deployed model"
+  },
+  "recipe": {
+    "float_phases": [
+      [
+        30,
+        0.001
+      ],
+      [
+        20,
+        0.0001
+      ]
+    ],
+    "qat_epochs": 30,
+    "qat_lr": 0.0001,
+    "quant": "power-of-2 round-half-up"
+  },
+  "points": [
+    {
+      "topology": [
+        4,
+        4,
+        8,
+        8
+      ],
+      "anchor": false,
+      "float": {
+        "acc": 0.9192488262910798,
+        "f1": 0.9099985596832139
+      },
+      "int8_p2": {
+        "acc": 0.9183098591549296,
+        "f1": 0.9099065112641033
+      },
+      "conv_weights": 580,
+      "w_shift": {
+        "conv1": 7,
+        "conv2": 7,
+        "conv3": 7,
+        "conv4": 7,
+        "fc": 8
+      },
+      "nb": {
+        "conv1": 9,
+        "conv2": 7,
+        "conv3": 7,
+        "conv4": 7
+      },
+      "input_shift": 2
+    }
+  ],
+  "wall_time_s": 947.0
+}

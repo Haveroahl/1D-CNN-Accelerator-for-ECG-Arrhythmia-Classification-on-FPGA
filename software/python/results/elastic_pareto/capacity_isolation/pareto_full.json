@@ -1,0 +1,116 @@
+{
+  "claim": "single runtime-reconfigurable bitstream, all points bit-exact (tb_topo_sweep 5/5 PASS)",
+  "power_model": {
+    "P_total_W": 0.623,
+    "P_dyn_W": 0.198,
+    "P_static_W": 0.413,
+    "note": "baseline power held constant across topologies; conservative upper bound for small topologies"
+  },
+  "mode": "capacity-isolation",
+  "recipe": {
+    "float_phases": [
+      [
+        30,
+        0.001
+      ],
+      [
+        20,
+        0.0001
+      ]
+    ],
+    "qat_epochs": 30,
+    "qat_lr": 0.0001,
+    "quant": "power-of-2 round-half-up"
+  },
+  "production_anchor_4488": {
+    "int8_acc": 0.9464788732394366,
+    "float_acc": 0.9408450704225352
+  },
+  "points": [
+    {
+      "topology": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "method": "from-scratch",
+      "float_acc": 0.784037558685446,
+      "int8_acc": 0.7849765258215963,
+      "int8_f1": 0.7345775647761674,
+      "conv_weights": 70,
+      "latency_cy": 3844,
+      "latency_us": 38.44,
+      "energy_total_uJ": 23.95,
+      "energy_dyn_uJ": 7.61
+    },
+    {
+      "topology": [
+        2,
+        2,
+        4,
+        4
+      ],
+      "method": "from-scratch",
+      "float_acc": 0.8779342723004695,
+      "int8_acc": 0.8816901408450705,
+      "int8_f1": 0.8648988368912696,
+      "conv_weights": 150,
+      "latency_cy": 3894,
+      "latency_us": 38.94,
+      "energy_total_uJ": 24.26,
+      "energy_dyn_uJ": 7.71
+    },
+    {
+      "topology": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "method": "from-scratch",
+      "float_acc": 0.9220657276995305,
+      "int8_acc": 0.9107981220657277,
+      "int8_f1": 0.9005419851887243,
+      "conv_weights": 260,
+      "latency_cy": 5114,
+      "latency_us": 51.14,
+      "energy_total_uJ": 31.86,
+      "energy_dyn_uJ": 10.13
+    },
+    {
+      "topology": [
+        4,
+        4,
+        8,
+        8
+      ],
+      "method": "from-scratch",
+      "float_acc": 0.9192488262910798,
+      "int8_acc": 0.9183098591549296,
+      "int8_f1": 0.9099065112641033,
+      "conv_weights": 580,
+      "latency_cy": 5214,
+      "latency_us": 52.14,
+      "energy_total_uJ": 32.48,
+      "energy_dyn_uJ": 10.32
+    },
+    {
+      "topology": [
+        8,
+        8,
+        8,
+        8
+      ],
+      "method": "from-scratch",
+      "float_acc": 0.923943661971831,
+      "int8_acc": 0.9286384976525821,
+      "int8_f1": 0.9210621728315247,
+      "conv_weights": 1000,
+      "latency_cy": 7654,
+      "latency_us": 76.54,
+      "energy_total_uJ": 47.68,
+      "energy_dyn_uJ": 15.15
+    }
+  ]
+}

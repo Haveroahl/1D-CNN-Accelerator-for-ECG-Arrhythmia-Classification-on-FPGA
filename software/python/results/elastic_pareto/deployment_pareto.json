@@ -1,0 +1,132 @@
+{
+  "mode": "deployment",
+  "note": "best-deployable per operating point; same prune-transfer recipe as the shipped (4,4,8,8); (8,8,8,8) from-scratch (not a subset of the (4,8,8,16) parent)",
+  "recipe": {
+    "prune": "Taylor-rank transfer from full (4,8,8,16)",
+    "finetune": "50ep (30@1e-3 + 20@1e-4)",
+    "qat_epochs": 30,
+    "quant": "power-of-2 round-half-up"
+  },
+  "points": [
+    {
+      "topology": [
+        2,
+        2,
+        2,
+        2
+      ],
+      "method": "prune-transfer",
+      "float": {
+        "acc": 0.8056338028169014,
+        "f1": 0.7618467924920793
+      },
+      "int8_p2": {
+        "acc": 0.8075117370892019,
+        "f1": 0.7647002506058846
+      },
+      "conv_weights": 70
+    },
+    {
+      "topology": [
+        2,
+        2,
+        4,
+        4
+      ],
+      "method": "prune-transfer",
+      "float": {
+        "acc": 0.9023474178403755,
+        "f1": 0.8913441063784603
+      },
+      "int8_p2": {
+        "acc": 0.9145539906103286,
+        "f1": 0.9041996925840506
+      },
+      "conv_weights": 150
+    },
+    {
+      "topology": [
+        4,
+        4,
+        4,
+        4
+      ],
+      "method": "prune-transfer",
+      "float": {
+        "acc": 0.923943661971831,
+        "f1": 0.9141254039959065
+      },
+      "int8_p2": {
+        "acc": 0.927699530516432,
+        "f1": 0.9189243141408995
+      },
+      "conv_weights": 260
+    },
+    {
+      "topology": [
+        4,
+        4,
+        8,
+        8
+      ],
+      "anchor": true,
+      "float": {
+        "acc": 0.9408450704225352,
+        "f1": 0.9335507370720382
+      },
+      "int8_p2": {
+        "acc": 0.9464788732394366,
+        "f1": 0.9395966635571101
+      },
+      "conv_weights": 580,
+      "w_shift": {
+        "conv1": 6,
+        "conv2": 6,
+        "conv3": 6,
+        "conv4": 7,
+        "fc": 8
+      },
+      "nb": {
+        "conv1": 8,
+        "conv2": 6,
+        "conv3": 6,
+        "conv4": 7
+      },
+      "input_shift": 2,
+      "method": "production-anchor"
+    },
+    {
+      "topology": [
+        8,
+        8,
+        8,
+        8
+      ],
+      "anchor": false,
+      "float": {
+        "acc": 0.923943661971831,
+        "f1": 0.9152966278730311
+      },
+      "int8_p2": {
+        "acc": 0.9286384976525821,
+        "f1": 0.9210621728315247
+      },
+      "conv_weights": 1000,
+      "w_shift": {
+        "conv1": 7,
+        "conv2": 7,
+        "conv3": 7,
+        "conv4": 8,
+        "fc": 7
+      },
+      "nb": {
+        "conv1": 9,
+        "conv2": 7,
+        "conv3": 7,
+        "conv4": 8
+      },
+      "input_shift": 2,
+      "method": "from-scratch (wider than parent)"
+    }
+  ]
+}

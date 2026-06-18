@@ -199,6 +199,8 @@ python export_weights_int8.py `
 - [~] Phase E01 — Tài liệu tham khảo (≥15) → `paper/REFERENCES.md`: **17 mục**, định dạng ICDV (tác giả/tiêu đề/nguồn in nghiêng/vol-no-pp/năm + DOI/ISSN/ISBN). 9/17 có DOI ✅, 8 mục 🔲 cần bổ sung citation đầy đủ. Hạn chế link Internet (arXiv → ưu tiên bản published).
 - [~] Phase F — draft ICDV ~6 trang (chỉ bản production 8-PE, KHÔNG SIMD/DSE) → `paper/ICDV_draft.md`. Venue = ICDV (xem PAPER_DATA.md), KHÔNG phải MDPI.
 - [ ] Phase F — GitHub public + Zenodo DOI reproducibility artifact
+- [ ] Phase K — Liêm chính học thuật: (a) tài liệu quy trình `paper/INTEGRITY_CHECK.md` — công cụ (Turnitin/iThenticate qua trường, GPTZero/Originality.ai cho AI-detect), ngưỡng % chấp nhận, cách diễn giải; (b) self-audit thủ công ICDV_draft.md trong cùng file — đánh dấu đoạn rủi ro copy nguyên, kiểm mọi claim có cite, soi câu "giọng AI". KHÔNG upload bản thảo ra dịch vụ ngoài (làm offline trong repo).
+- [ ] Phase L — Báo cáo tiến độ Word ~10 trang `paper/PROGRESS_REPORT.md` (Markdown → Word, không cầu kỳ): tóm tắt mục tiêu, kết quả software (94.65% acc, ablation), hardware (52µs, synth, board 94.27%), cross-dataset, trạng thái các Phase A–F/K, việc còn lại.
 
 ---
 

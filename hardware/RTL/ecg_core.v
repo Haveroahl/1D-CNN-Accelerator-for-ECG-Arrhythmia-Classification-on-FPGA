@@ -66,7 +66,7 @@ module ecg_core (
     wire        ctrl_compute_en;
     wire [3:0]  ctrl_in_ch;
     wire [11:0] ctrl_in_len;
-    wire [4:0]  ctrl_nb;
+    wire [3:0]  ctrl_nb;
     wire        ctrl_relu_en;
     wire [7:0]  ctrl_cp_en;
     wire        ctrl_bank_sel;

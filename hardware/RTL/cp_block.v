@@ -39,7 +39,7 @@ module cp_block #(
     input  wire [3:0]            a_in,           // channel counter delayed 5 cycles (a_d5)
     input  wire [3:0]            in_ch,          // IN_CH for current layer (1/4/4/8)
     input  wire                  compute_en_in,   // pipeline enable delayed 5 cycles (ce_d5)
-    input  wire [4:0]            nb,              // rescale shift amount
+    input  wire [3:0]            nb,              // rescale shift amount (0..15; max used = 8)
     input  wire                  relu_en,         // 1 = Conv4 only
 
     // Pool reset (layer transition)

@@ -29,7 +29,7 @@ module cnn_controller (
     output reg         compute_en,    // pipeline enable
     output reg  [3:0]  in_ch,         // current layer IN_CH
     output reg  [11:0] in_len,        // current layer IN_LEN (Conv1=2500, Conv2=500, Conv3=100, Conv4=20)
-    output reg  [4:0]  nb,            // rescale shift
+    output reg  [3:0]  nb,            // rescale shift (0..15; max used = 8)
     output reg         relu_en,       // ReLU enable (Conv4 only)
     output reg  [7:0]  cp_en,         // active output channel bitmask
     output reg         bank_sel,      // Ping/Pong bank selector
@@ -77,7 +77,8 @@ module cnn_controller (
     // block selects li for the NEXT layer; LOAD_INPUT uses li=0 (Conv1).
     function [3:0] cfg_in_ch_of; input [1:0] li; cfg_in_ch_of = cfg_in_ch[li*4 +: 4]; endfunction
     function [7:0] cfg_cp_en_of; input [1:0] li; cfg_cp_en_of = cfg_cp_en[li*8 +: 8]; endfunction
-    function [4:0] cfg_nb_of;    input [1:0] li; cfg_nb_of    = cfg_nb   [li*5 +: 5]; endfunction
+    // cfg_nb is packed 5-bit/layer in avalon_slave; nb max used = 8 → take low 4 bits.
+    function [3:0] cfg_nb_of;    input [1:0] li; cfg_nb_of    = cfg_nb   [li*5 +: 4]; endfunction
 
     // ── Derived signals ────────────────────────────────────────────────────
     // IN_LEN per layer: Conv1=2500, Conv2=500, Conv3=100, Conv4=20

@@ -44,7 +44,7 @@ module cp_engine (
     input  wire        shift_en,     // = (a == IN_CH-1)
     input  wire        srw_rst,      // SRW clear pulse (layer transition)
     input  wire        compute_en,   // pipeline enable (0 during pre-fetch)
-    input  wire [4:0]  nb,           // rescale shift per layer
+    input  wire [3:0]  nb,           // rescale shift per layer (0..15; max used = 8)
     input  wire        relu_en,      // 1 = Conv4 only
     input  wire [7:0]  cp_en,        // bitmask: which output channels are active
     input  wire [2:0]  layer_state,  // CONV1=2, CONV2=3, CONV3=4, CONV4=5 (match controller)

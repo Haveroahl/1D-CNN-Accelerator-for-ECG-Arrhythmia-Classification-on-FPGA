@@ -318,12 +318,16 @@ Console, the core classifies the Chapman test set at **94.27%** 🔲 (1,004/1,06
 cite-able log; currently from run notes*), reproducing the simulated 94.65%. The small gap is
 the test-subset/run difference, not a numerical one (the datapath is bit-exact).
 
-Using the weight-reload path, the same bitstream runs PTB-XL weights. In a brief transfer
-study (Chapman↔PTB-XL, patient-independent 70/15/15), zero-shot INT8 accuracy is 0.7714 and a
-linear probe (retrain FC only) recovers 0.9263. Because the INT8 zero-shot (C2) equals the
-float32 zero-shot (C6) at 0.7714, the entire transfer drop is **distribution shift, not
-quantization** — i.e. power-of-two INT8 adds 0% generalization loss. This is a short
-supporting result, not the paper's focus.
+Using the weight-reload path, the same bitstream evaluates the model on two independent
+datasets, zero-shot (no fine-tuning), under a 4-class mapping identical to Chapman's. On the
+Ningbo database (33,143 records, after excluding the Chapman-Shaoxing half that shares the
+JS-numbered archive to prevent train/test leakage), zero-shot INT8 accuracy is **0.9257**
+(macro-F1 0.918, macro-AUC 0.987; all classes AUC ≥ 0.98). On the more distant PTB-XL database
+(German cohort, different annotation convention), zero-shot accuracy is **0.7714**. In both
+cases the INT8 zero-shot (C2) exactly equals the float32 zero-shot (C6) — so the entire
+transfer gap is **distribution shift, not quantization**: power-of-two INT8 adds 0%
+generalization loss. The two datasets bracket the generalization spectrum (small shift /
+large shift); this is a short supporting result, not the paper's focus.
 
 ---
 

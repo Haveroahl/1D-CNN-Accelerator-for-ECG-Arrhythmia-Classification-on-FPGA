@@ -126,6 +126,8 @@ khác nhau (bội-2, ≤8 mỗi layer), miễn nạp kèm weight/bias/FC khớp.
 
 ## Module List
 
+> Bảng port/interface đầy đủ của 11 module compute-core (verbatim từ RTL): [docs/module_interfaces.md](docs/module_interfaces.md) (kèm bản LaTeX paste-ready).
+
 | Module | File | Status |
 |--------|------|--------|
 | CP Block pipeline | RTL/cp_block.v | ✓ Done |

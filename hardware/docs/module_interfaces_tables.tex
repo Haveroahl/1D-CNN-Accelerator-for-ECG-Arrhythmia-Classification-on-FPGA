@@ -1,0 +1,343 @@
+% module_interfaces_tables.tex
+% Interface (port) tables for the 11 compute-core modules of the ECG CNN accelerator.
+% Widths and signal names taken verbatim from hardware/RTL/*.v (NOT RTL/txt/).
+% Paste-ready booktabs fragments — \input this file. Needs: \usepackage{booktabs,array}
+% Companion Markdown master: module_interfaces.md
+%
+% Column convention: Dir | Width | Name | Group | Purpose.
+% "s" prefix on Dir (in.s / out.s) marks a signed port.
+
+% =====================================================================
+\begin{table}[t]
+\centering
+\caption{Interface of \texttt{cp\_mac} — MAC datapath (S1--S4).}
+\label{tab:if-cp-mac}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Dir} & \textbf{Width} & \textbf{Name} & \textbf{Purpose} \\
+\midrule
+in    & 1        & \texttt{clk}      & clock \\
+in    & [39:0]   & \texttt{x\_in}    & 5 samples, packed 5$\times$8b \\
+in    & [39:0]   & \texttt{w}        & 5 weights, packed 5$\times$8b \\
+out.s & [19:0]   & \texttt{tree\_out}& adder-tree output ($\Sigma$ 5 products) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\begin{table}[t]
+\centering
+\caption{Interface of \texttt{cp\_accumulate\_rescale} — accumulate + bias + rescale + ReLU (S5--S8).}
+\label{tab:if-cp-accres}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Dir} & \textbf{Width} & \textbf{Name} & \textbf{Purpose} \\
+\midrule
+in    & 1      & \texttt{clk}            & clock \\
+in    & 1      & \texttt{rst}            & reset \\
+in    & 1      & \texttt{pool\_rst}      & pool/layer-transition reset \\
+in.s  & [19:0] & \texttt{tree\_out}      & MAC output (from cp\_mac) \\
+in.s  & [31:0] & \texttt{bias\_in}       & INT32 bias \\
+in    & [3:0]  & \texttt{a\_in}          & channel counter, delay 5 cy (a\_d5) \\
+in    & [3:0]  & \texttt{in\_ch}         & IN\_CH of layer (1/4/4/8) \\
+in    & 1      & \texttt{compute\_en\_in}& pipeline enable, delay 5 cy (ce\_d5) \\
+in    & [3:0]  & \texttt{nb}             & rescale shift (0..15; max 8) \\
+in    & 1      & \texttt{relu\_en}       & 1 = Conv4 only \\
+out.s & [7:0]  & \texttt{relu\_out}      & INT8 activation \\
+out   & 1      & \texttt{relu\_v}        & valid \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\begin{table}[t]
+\centering
+\caption{Interface of \texttt{cp\_pool} — MaxPool rolling comparator (S9).}
+\label{tab:if-cp-pool}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Dir} & \textbf{Width} & \textbf{Name} & \textbf{Purpose} \\
+\midrule
+in    & 1     & \texttt{clk}            & clock \\
+in    & 1     & \texttt{rst}            & reset \\
+in    & 1     & \texttt{pool\_rst}      & pool/layer reset \\
+in.s  & [7:0] & \texttt{relu\_out}      & INT8 activation \\
+in    & 1     & \texttt{relu\_v}        & valid \\
+in    & 1     & \texttt{compute\_en\_in}& original gate (ce\_d5) \\
+out   & 1     & \texttt{pool\_write}    & write strobe (AND cp\_en externally) \\
+out.s & [7:0] & \texttt{pool\_out}      & max-pooled value to Pong SRAM \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\begin{table}[t]
+\centering
+\caption{Interface of \texttt{cp\_block} — Conv-Pool block, 1 output channel
+(\texttt{IN\_CH\_W}$=4$).}
+\label{tab:if-cp-block}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Dir} & \textbf{Width} & \textbf{Name} & \textbf{Purpose} \\
+\midrule
+in    & 1      & \texttt{clk}            & clock \\
+in    & 1      & \texttt{rst}            & reset \\
+in    & [39:0] & \texttt{x\_in}          & 5 taps (mux\_s1), packed 5$\times$8b \\
+in    & [39:0] & \texttt{w}              & weights (w\_packed), packed 5$\times$8b \\
+in.s  & [31:0] & \texttt{bias\_in}       & INT32 bias \\
+in    & [3:0]  & \texttt{a\_in}          & channel counter, delay 5 cy (a\_d5) \\
+in    & [3:0]  & \texttt{in\_ch}         & IN\_CH of layer (1/4/4/8) \\
+in    & 1      & \texttt{compute\_en\_in}& pipeline enable, delay 5 cy (ce\_d5) \\
+in    & [3:0]  & \texttt{nb}             & rescale shift (0..15; max 8) \\
+in    & 1      & \texttt{relu\_en}       & 1 = Conv4 only \\
+in    & 1      & \texttt{pool\_rst}      & pool reset (layer transition) \\
+out   & 1      & \texttt{pool\_write}    & write strobe (AND cp\_en externally) \\
+out.s & [7:0]  & \texttt{pool\_out}      & max-pooled value to Pong SRAM \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\begin{table}[t]
+\centering
+\caption{Interface of \texttt{cp\_weight\_store} — weight + bias storage
+(\texttt{WEIGHT\_ROM}: V1 FF-ROM $\mid$ default: V2 8$\times$M10K RAM).}
+\label{tab:if-cp-wstore}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Dir} & \textbf{Width} & \textbf{Name} & \textbf{Purpose} \\
+\midrule
+in  & 1       & \texttt{clk}           & clock \\
+in  & 1       & \texttt{rst}           & reset \\
+in  & [2:0]   & \texttt{layer\_state}  & CONV1=2 .. CONV4=5 \\
+in  & [3:0]   & \texttt{a}             & input-channel counter (word index) \\
+in  & [19:0]  & \texttt{cfg\_base}     & 4$\times$5-bit RAM word base (V2) \\
+in  & 1       & \texttt{w\_wr\_en}     & conv weight write enable \\
+in  & [2:0]   & \texttt{w\_wr\_oc}     & which of 8 per-oc RAMs \\
+in  & [4:0]   & \texttt{w\_wr\_word}   & RAM word (0..31) = base + ic \\
+in  & [39:0]  & \texttt{w\_wr\_data}   & 40-bit packed 5-tap entry \\
+in  & 1       & \texttt{b\_wr\_en}     & bias write enable \\
+in  & [4:0]   & \texttt{b\_wr\_addr}   & bias addr (0..31) \\
+in  & [31:0]  & \texttt{b\_wr\_data}   & INT32 bias \\
+out & [319:0] & \texttt{w\_packed\_flat}& 8$\times$40b weights (reg N+1) \\
+out & [255:0] & \texttt{b\_cur\_flat}  & 8$\times$32b INT32 bias (current layer) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\begin{table}[t]
+\centering
+\caption{Interface of \texttt{cp\_engine} — 8 parallel CP blocks + SRW + address gen.}
+\label{tab:if-cp-engine}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Dir} & \textbf{Width} & \textbf{Name} & \textbf{Purpose} \\
+\midrule
+in  & 1      & \texttt{clk}              & clock \\
+in  & 1      & \texttt{rst}              & reset \\
+in  & [3:0]  & \texttt{a}                & channel counter 0..IN\_CH$-$1 \\
+in  & [3:0]  & \texttt{in\_ch}           & IN\_CH: 1/4/4/8 \\
+in  & [11:0] & \texttt{in\_len}          & IN\_LEN (2500/500/100/20) \\
+in  & 1      & \texttt{shift\_en}        & = (a == IN\_CH$-$1) \\
+in  & 1      & \texttt{srw\_rst}         & SRW clear pulse \\
+in  & 1      & \texttt{compute\_en}      & pipeline enable (0 in pre-fetch) \\
+in  & [3:0]  & \texttt{nb}               & rescale shift/layer (max 8) \\
+in  & 1      & \texttt{relu\_en}         & 1 = Conv4 only \\
+in  & [7:0]  & \texttt{cp\_en}           & active output-channel bitmask \\
+in  & [2:0]  & \texttt{layer\_state}     & CONV1=2 .. CONV4=5 \\
+in  & 1      & \texttt{pool\_rst}        & reset pool\_cnt (layer transition) \\
+in  & [7:0]  & \texttt{input\_sram\_dout}& from input\_sram (Conv1 only) \\
+in  & [63:0] & \texttt{ping\_dout}       & from ping\_pong: [ch*8+:8] \\
+out & [63:0] & \texttt{pong\_din}        & write data/channel: [ch*8+:8] \\
+out & [7:0]  & \texttt{pong\_we}         & per-channel write enable \\
+out & [11:0] & \texttt{sram\_rd\_addr}   & read addr $\to$ input/ping\_pong \\
+in  & [11:0] & \texttt{sram\_rd\_addr\_in}& base from controller (= t) \\
+in  & 1      & \texttt{w\_wr\_en}        & conv weight WE \\
+in  & [2:0]  & \texttt{w\_wr\_oc}        & per-oc RAM (0..7) \\
+in  & [4:0]  & \texttt{w\_wr\_word}      & RAM word (0..31) \\
+in  & [39:0] & \texttt{w\_wr\_data}      & 40-bit packed entry \\
+in  & 1      & \texttt{b\_wr\_en}        & bias WE \\
+in  & [4:0]  & \texttt{b\_wr\_addr}      & bias addr \\
+in  & [31:0] & \texttt{b\_wr\_data}      & INT32 bias \\
+in  & [19:0] & \texttt{cfg\_base}        & weight-RAM word base/layer (4$\times$5b) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\begin{table}[t]
+\centering
+\caption{Interface of \texttt{cnn\_controller} — unified FSM.}
+\label{tab:if-cnn-ctrl}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Dir} & \textbf{Width} & \textbf{Name} & \textbf{Purpose} \\
+\midrule
+in  & 1      & \texttt{clk}            & clock \\
+in  & 1      & \texttt{rst}            & synchronous reset \\
+in  & 1      & \texttt{start}          & 1-cycle start pulse \\
+in  & 1      & \texttt{pool\_write}    & from cp\_engine (ch0 representative) \\
+in  & [15:0] & \texttt{cfg\_in\_ch}    & 4$\times$4-bit \\
+in  & [31:0] & \texttt{cfg\_cp\_en}    & 4$\times$8-bit \\
+in  & [19:0] & \texttt{cfg\_nb}        & 4$\times$5-bit \\
+out & [3:0]  & \texttt{a}              & channel counter 0..IN\_CH$-$1 \\
+out & [11:0] & \texttt{t}              & output position counter \\
+out & 1      & \texttt{shift\_en}      & = (a == in\_ch$-$1) \\
+out & 1      & \texttt{srw\_rst}       & SRW clear pulse (1 cy) \\
+out & 1      & \texttt{compute\_en}    & pipeline enable \\
+out & [3:0]  & \texttt{in\_ch}         & current layer IN\_CH \\
+out & [11:0] & \texttt{in\_len}        & current layer IN\_LEN \\
+out & [3:0]  & \texttt{nb}             & rescale shift (max 8) \\
+out & 1      & \texttt{relu\_en}       & ReLU enable (Conv4 only) \\
+out & [7:0]  & \texttt{cp\_en}         & active output-channel bitmask \\
+out & 1      & \texttt{bank\_sel}      & Ping/Pong bank selector \\
+out & [11:0] & \texttt{pong\_addr}     & Pong SRAM write address \\
+out & 1      & \texttt{pool\_rst}      & reset pool\_cnt (layer transition) \\
+out & [2:0]  & \texttt{fc\_sub\_state} & GAP/FC/flush/argmax/done sub-state \\
+out & [3:0]  & \texttt{gap\_step}      & 0..5 \\
+out & [3:0]  & \texttt{fc\_step}       & 0..9 \\
+out & [1:0]  & \texttt{argmax\_step}   & 0..3 \\
+in  & [1:0]  & \texttt{argmax\_result} & argmax class (from gap\_fc) \\
+out & [2:0]  & \texttt{layer\_state}   & exposed for cp\_engine MUX + top \\
+out & 1      & \texttt{busy}           & 1 while $\neq$ IDLE/DONE \\
+out & 1      & \texttt{done}           & 1-cycle pulse \\
+out & [1:0]  & \texttt{result}         & latched argmax class \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\begin{table}[t]
+\centering
+\caption{Interface of \texttt{gap\_fc\_argmax} — GAP $\to$ FC $\to$ Argmax.}
+\label{tab:if-gap-fc}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Dir} & \textbf{Width} & \textbf{Name} & \textbf{Purpose} \\
+\midrule
+in  & 1      & \texttt{clk}           & clock \\
+in  & 1      & \texttt{rst}           & reset \\
+in  & [2:0]  & \texttt{fc\_sub\_state}& GAP/FC/flush/argmax/done \\
+in  & [3:0]  & \texttt{gap\_step}     & 0..5 \\
+in  & [3:0]  & \texttt{fc\_step}      & 0..9 \\
+in  & [1:0]  & \texttt{argmax\_step}  & 0..3 \\
+in  & [63:0] & \texttt{ping\_dout}    & Conv4 output: [ch*8+:8], 1-cy \\
+in  & [7:0]  & \texttt{out\_ch\_mask} & Conv4 active mask (= cp\_en); default FF \\
+out & [8:0]  & \texttt{gap\_rd\_addr} & Ping read addr, broadcast 8 ch (0..3) \\
+in  & 1      & \texttt{fcw\_wr\_en}   & FC weight/bias WE \\
+in  & [5:0]  & \texttt{fcw\_wr\_addr} & [5]=1$\to$fc\_b[addr[1:0]] else fc\_w[addr[4:0]] \\
+in  & [31:0] & \texttt{fcw\_wr\_data} & INT32 (bias) or INT8 in [7:0] (weight) \\
+out & [1:0]  & \texttt{result}        & argmax class index \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\begin{table}[t]
+\centering
+\caption{Interface of \texttt{input\_sram} — 2500$\times$8b simple dual-port (M10K).}
+\label{tab:if-input-sram}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Dir} & \textbf{Width} & \textbf{Name} & \textbf{Purpose} \\
+\midrule
+in  & 1      & \texttt{clk}      & clock \\
+in  & [11:0] & \texttt{wr\_addr} & write addr 0..2499 \\
+in  & [7:0]  & \texttt{din}      & write data \\
+in  & 1      & \texttt{we}       & write enable \\
+in  & [11:0] & \texttt{rd\_addr} & read addr 0..2499 \\
+out & [7:0]  & \texttt{dout}     & read data (1-cycle sync) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\begin{table}[t]
+\centering
+\caption{Interface of \texttt{ping\_pong\_sram} — inter-layer feature-map buffer
+(2 sets $\times$ 8 ch $\times$ 500 $\times$ 8b).}
+\label{tab:if-pingpong}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Dir} & \textbf{Width} & \textbf{Name} & \textbf{Purpose} \\
+\midrule
+in  & 1      & \texttt{clk}      & clock \\
+in  & 1      & \texttt{bank\_sel}& 0: A=Ping B=Pong $\mid$ 1: swapped \\
+in  & [8:0]  & \texttt{wr\_addr} & Pong write addr 0..499 \\
+in  & [63:0] & \texttt{din}      & 8 ch packed: [ch*8+:8] \\
+in  & [7:0]  & \texttt{we}       & per-channel write enable \\
+in  & [8:0]  & \texttt{rd\_addr} & Ping read addr 0..499 \\
+out & [63:0] & \texttt{dout}     & 8 ch packed: [ch*8+:8] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\begin{table}[t]
+\centering
+\caption{Interface of \texttt{ecg\_core} — bus-agnostic compute core
+(pp + cpe + gfa + ctrl; \texttt{input\_sram} lives in the wrapper).}
+\label{tab:if-ecg-core}
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Dir} & \textbf{Width} & \textbf{Name} & \textbf{Purpose} \\
+\midrule
+in  & 1      & \texttt{clk}            & clock \\
+in  & 1      & \texttt{rst}            & synchronous reset (active high) \\
+out & [11:0] & \texttt{input\_rd\_addr}& read addr $\to$ wrapper input\_sram \\
+in  & [7:0]  & \texttt{input\_dout}    & read data (1-cy latency) \\
+in  & 1      & \texttt{w\_wr\_en}      & conv weight WE \\
+in  & [2:0]  & \texttt{w\_wr\_oc}      & per-oc RAM select \\
+in  & [4:0]  & \texttt{w\_wr\_word}    & RAM word index \\
+in  & [39:0] & \texttt{w\_wr\_data}    & 40-bit weight entry \\
+in  & 1      & \texttt{b\_wr\_en}      & bias WE \\
+in  & [4:0]  & \texttt{b\_wr\_addr}    & bias addr \\
+in  & [31:0] & \texttt{b\_wr\_data}    & INT32 bias \\
+in  & 1      & \texttt{fcw\_wr\_en}    & FC WE \\
+in  & [5:0]  & \texttt{fcw\_wr\_addr}  & FC addr \\
+in  & [31:0] & \texttt{fcw\_wr\_data}  & FC data \\
+in  & [15:0] & \texttt{cfg\_in\_ch}    & 4$\times$4-bit \\
+in  & [31:0] & \texttt{cfg\_cp\_en}    & 4$\times$8-bit \\
+in  & [19:0] & \texttt{cfg\_nb}        & 4$\times$5-bit \\
+in  & [19:0] & \texttt{cfg\_base}      & 4$\times$5-bit \\
+in  & 1      & \texttt{start}          & kick off inference \\
+out & 1      & \texttt{busy}           & busy \\
+out & 1      & \texttt{done}           & done pulse \\
+out & [1:0]  & \texttt{result}         & class 0..3 \\
+\bottomrule
+\end{tabular}
+\end{table}

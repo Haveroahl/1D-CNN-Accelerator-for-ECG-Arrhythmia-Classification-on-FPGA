@@ -1,5 +1,7 @@
 # CP Block Pipeline — Chi Tiết
 
+> Bảng port/interface của các module (cp_mac/accres/pool/engine/…): [module_interfaces.md](module_interfaces.md).
+
 ## Pipeline Stages (S1–S9)
 
 ```

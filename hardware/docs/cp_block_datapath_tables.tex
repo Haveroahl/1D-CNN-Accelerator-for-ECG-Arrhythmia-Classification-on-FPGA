@@ -1,0 +1,104 @@
+% cp_block REAL run-time timing — stage (rows) x cycle (cols)
+% Values are taken from a Questa RTL simulation on ecg_sample0.hex (Conv1, ch0),
+% captured by testbench/tb_cpb_cycle_probe.v. Cycle 0 = entry into CONV1.
+% Raw evidence: cp_block_conv1_probe_raw.txt (bit-exact, same run).
+% Needs: \usepackage{booktabs,array}
+%
+% Notation: pN = 5-tap MAC of output position N (Conv1 has a single input channel,
+% so a_in==0 every cycle -> acc initialises AND finalises the same cycle).
+% Timeline milestones (from sim):
+%   cy 0     : srw_rst=1 -> clear SRW; pad_zero_r=1
+%   cy 1-2   : zero-padding shifted in  (rd_addr < 2)
+%   cy 3-5   : first data samples enter SRW
+%   cy 6     : compute_en rises (5 real shifts done, SRW full)
+%   cy 10    : first tree_out (p0)
+%   cy 12    : first acc_final (p0)  [acc_final_v=1]
+%   cy 16    : first relu_out (p0)
+%   cy 21    : first pool_write, then every 5 cycles (26,31,...)
+
+% =====================================================================
+% Conv1 startup — real timing incl. padding/prefetch
+% =====================================================================
+\begin{table*}[t]
+\centering
+\caption{cp\_block real run-time timing at the start of Conv1 ($\mathit{in\_ch}=1$),
+captured from a Questa RTL simulation on \texttt{sample0}. Cycle~0 is the entry into
+CONV1. The first six cycles are SRW priming: \texttt{srw\_rst} clears the window
+(cy~0), two zero-pad samples enter (cy~1--2, since \texttt{rd\_addr}$<$2), then real
+data fills the 5-tap window; \texttt{compute\_en} rises at cy~6. Numbers below are the
+actual signed register values from the run ($p_N$ = output position $N$).
+\texttt{pool\_write} first asserts at cy~21 and then every 5 cycles.}
+\label{tab:cpblock-conv1-real}
+\setlength{\tabcolsep}{2.6pt}
+\renewcommand{\arraystretch}{1.15}
+\footnotesize
+\begin{tabular}{@{}l|cccccccccccccccccccccc@{}}
+\toprule
+\textbf{cycle} & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 & 10 & 11 & 12 & 13 & 14 & 15 & 16 & 17 & 18 & 19 & 20 & 21 \\
+\midrule
+\texttt{srw\_rst}    & 1 &   &   &   &   &   &   &   &   &   &    &    &    &    &    &    &    &    &    &    &    &    \\
+\texttt{pad\_zero\_r}& 1 & 1 & 1 &   &   &   &   &   &   &   &    &    &    &    &    &    &    &    &    &    &    &    \\
+\texttt{compute\_en} &   &   &   &   &   &   & 1 & 1 & 1 & 1 & 1  & 1  & 1  & 1  & 1  & 1  & 1  & 1  & 1  & 1  & 1  & 1  \\
+\texttt{ce\_d5}      &   &   &   &   &   &   &   &   &   &   &    & 1  & 1  & 1  & 1  & 1  & 1  & 1  & 1  & 1  & 1  & 1  \\
+\midrule
+SRW slot0 (new)      &   & 0 & 0 & 0 & 0 & $-3$ & $-2$ & $-2$ & $-1$ & $-2$ & $-1$ & $-2$ & $-1$ & $-1$ & $-1$ & $-1$ & $-1$ & $-2$ & $-1$ & $-1$ & $-1$ & $-1$ \\
+\midrule
+S4 \texttt{tree\_out}&   &   &   &   &   &   & 0 & 0 & 0 & 0 & 6 & $-158$ & $-191$ & $-353$ & $-429$ & $-391$ & $-301$ & $-326$ & $-303$ & $-272$ & $-274$ & $-209$ \\
+S5 \texttt{acc}      &   &   &   &   &   &   &   &   &   &   &   &   & $-98$ & $-131$ & $-293$ & $-369$ & $-331$ & $-241$ & $-266$ & $-243$ & $-212$ & $-214$ \\
+S5b \texttt{acc\_final} & &  &   &   &   &   &   &   &   &   &   &   & $\mathbf{-98}$ & $-131$ & $-293$ & $-369$ & $-331$ & $-241$ & $-266$ & $-243$ & $-212$ & $-214$ \\
+S8 \texttt{relu\_out}&   &   &   &   &   &   &   &   &   &   &   &   &    &    &    &    & $-1$ & $-1$ & $-2$ & $-2$ & $-2$ & $-1$ \\
+S9 \texttt{pool\_write} & & &  &   &   &   &   &   &   &   &   &   &    &    &    &    &    &    &    &    &    & \textbf{1} \\
+\bottomrule
+\end{tabular}
+
+\smallskip
+{\footnotesize Milestones: \texttt{compute\_en}$\uparrow$ cy~6, first \texttt{tree\_out}
+cy~10, first \texttt{acc\_final} cy~12 ($p_0=-98$), first \texttt{relu\_out} cy~16,
+first \texttt{pool\_write} cy~21. Because $\mathit{in\_ch}=1$, \texttt{acc} finalises
+every cycle; for Conv4 ($\mathit{in\_ch}=8$) the accumulator instead sums 8 channels
+before \texttt{acc\_final}, so downstream valids and \texttt{pool\_write} are spaced
+$8\times$ further apart. Source: \texttt{tb\_cpb\_cycle\_probe.v};
+raw log \texttt{cp\_block\_conv1\_probe\_raw.txt}.}
+\end{table*}
+
+
+% =====================================================================
+% Conv4 — real timing: 8 channels accumulate -> 1 output, valid 1/8 cycle
+% Values from Questa RTL sim on sample0 (Conv4, ch0), cycles 45..60.
+% =====================================================================
+\begin{table*}[t]
+\centering
+\caption{cp\_block real run-time timing for Conv4 ($\mathit{in\_ch}=8$), captured from
+the same RTL simulation (\texttt{sample0}, ch0), showing one complete output. The
+accumulator sums the 8 input channels ($a\_d5=0\ldots7$) across cycles~45--52; the
+result is committed by \texttt{acc\_final} for a single cycle at cy~53
+($\mathit{accf}=6156$, $\mathit{av}=1$). After the rescale ($\gg nb$, $nb=7$:
+$6156\gg7=48$) and ReLU, \texttt{relu\_out}$=48$ appears at cy~57. Because 8 cycles
+feed one output, the downstream valids ($\mathit{av}$, $\mathit{rv}$) assert only once
+per 8 cycles --- $8\times$ sparser than Conv1. Cycle numbers are local (offset into
+Conv4). Raw log: \texttt{cp\_block\_conv4\_probe\_raw.txt}.}
+\label{tab:cpblock-conv4-real}
+\setlength{\tabcolsep}{2.6pt}
+\renewcommand{\arraystretch}{1.15}
+\footnotesize
+\begin{tabular}{@{}l|cccccccccccccccc@{}}
+\toprule
+\textbf{cycle} & 45 & 46 & 47 & 48 & 49 & 50 & 51 & 52 & 53 & 54 & 55 & 56 & 57 & 58 & 59 & 60 \\
+$a\_d5$ (ch)   & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 \\
+\midrule
+S4 \texttt{tree\_out} & 865 & 1311 & 694 & 207 & 380 & 1252 & 823 & 546 & 1352 & 1861 & 852 & $-231$ & 42 & 1949 & 1454 & 753 \\
+S5 \texttt{acc}       & 865 & 943 & 2254 & 2948 & 3155 & 3535 & 4787 & 5610 & \textbf{6156} & 1430 & 3291 & 4143 & 3912 & 3954 & 5903 & 7357 \\
+S5b \texttt{acc\_final}&    &    &    &    &    &    &    &    & \textbf{6156} & 6156 & 6156 & 6156 & 6156 & 6156 & 6156 & 6156 \\
+\texttt{av} (acc\_final\_v) &  &  &  &  &  &  &  &  & \textbf{1} &   &   &   &   &   &   &   \\
+S8 \texttt{relu\_out} &    &    &    &    &    &    &    &    &    &    &    &    & \textbf{48} & 48 & 48 & 48 \\
+\texttt{rv} (relu\_v) &    &    &    &    &    &    &    &    &    &    &    &    & \textbf{1} &   &   &   \\
+\bottomrule
+\end{tabular}
+
+\smallskip
+{\footnotesize Contrast with Table~\ref{tab:cpblock-conv1-real}: identical hardware,
+but with $\mathit{in\_ch}=8$ the accumulator init ($a\_d5{=}0$, cy~45) and commit
+($a\_d5{=}7\!\to\!$ \texttt{acc\_final} at cy~53) are 8 cycles apart, so one INT8 output
+is produced every 8 cycles. \texttt{pool\_write} then asserts every 5 outputs $=$ every
+40 cycles. Only $a\_in$ (from \texttt{cnn\_controller}) differs between the two layers.}
+\end{table*}

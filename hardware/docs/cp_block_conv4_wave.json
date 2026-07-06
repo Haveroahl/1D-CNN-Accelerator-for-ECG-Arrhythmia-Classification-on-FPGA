@@ -1,0 +1,25 @@
+{ "signal": [
+  { "name": "clk",   "wave": "p................", "period": 1 },
+  {},
+  ["control (values REAL from RTL sim, sample0, cycles 45..60 of Conv4)",
+    { "name": "a_d5 (channel)", "wave": "2222222222222222", "data": ["0","1","2","3","4","5","6","7","0","1","2","3","4","5","6","7"] },
+    { "name": "ce_d5",         "wave": "1...............", "data": [] }
+  ],
+  {},
+  ["ACC accumulates the 8 channels of one output position",
+    { "name": "S4 tree_out", "wave": "2222222222222222", "data": ["865","1311","694","207","380","1252","823","546","1352","1861","852","-231","42","1949","1454","753"] },
+    { "name": "S5 acc",      "wave": "2222222222222222", "data": ["865","943","2254","2948","3155","3535","4787","5610","6156","1430","3291","4143","3912","3954","5903","7357"] },
+    { "name": "S5b acc_final", "wave": "x........2.......", "data": ["6156"], "node": ".........A" },
+    { "name": "acc_final_v (av)", "wave": "0........10......", "data": [] }
+  ],
+  {},
+  ["RESCALE / RELU / POOL",
+    { "name": "S8 relu_out", "wave": "x............2...", "data": ["48"], "node": "............B" },
+    { "name": "relu_v",      "wave": "0............10..", "data": [] },
+    { "name": "S9 pool_out", "wave": "x.............2..", "data": ["48"] }
+  ]
+],
+  "edge": [ "A~>B rescale(>>7)+relu, 6156>>7=48" ],
+  "head": { "text": "cp_block REAL run-time timing - Conv4 (in_ch=8), sample0. acc sums 8 channels (a_d5=0..7, cy45-52) then acc_final chốt ONE cycle (6156) at cy53; relu_out=48 (=6156>>nb, nb=7) at cy57. Downstream valid 1/8 cycle." },
+  "config": { "hscale": 2 }
+}

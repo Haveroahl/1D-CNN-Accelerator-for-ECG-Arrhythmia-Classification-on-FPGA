@@ -1,0 +1,15 @@
+% Standalone preview wrapper for cp_block_datapath_tables.tex
+% Compile THIS file on Overleaf (pdfLaTeX). It pulls in the table fragment.
+\documentclass[11pt,twocolumn]{article}  % twocolumn so table* (full-width) floats work
+\usepackage[a4paper,margin=1.5cm,landscape]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{amssymb}   % \checkmark
+\usepackage{amsmath}
+
+\begin{document}
+\pagestyle{empty}
+
+\input{cp_block_datapath_tables.tex}
+
+\end{document}

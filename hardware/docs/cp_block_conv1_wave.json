@@ -1,0 +1,27 @@
+{ "signal": [
+  { "name": "clk",         "wave": "p.....................", "period": 1 },
+  {},
+  ["control",
+    { "name": "layer_state", "wave": "2.....................", "data": ["CONV1"] },
+    { "name": "srw_rst",     "wave": "10....................", "data": [] },
+    { "name": "pad_zero_r",  "wave": "1..0..................", "data": [] },
+    { "name": "compute_en",  "wave": "0.....1...............", "data": [] },
+    { "name": "ce_d5",       "wave": "0..........1..........", "data": [] }
+  ],
+  {},
+  ["datapath (pN = output position N; values REAL from RTL sim, sample0)",
+    { "name": "SRW slot0 (new sample)", "wave": "x.====================", "data": ["0","0","0","-3","-2","-2","-1","-2","-1","-2","-1","-1","-1","-1","-1","-2","-1","-1","-1","-1"] },
+    { "name": "S4 tree_out",  "wave": "x..........===========", "data": ["6","-158","-191","-353","-429","-391","-301","-326","-303","-272","-274"], "node": "..........A" },
+    { "name": "S5b acc_final","wave": "x............=========", "data": ["-98","-131","-293","-369","-331","-241","-266","-243","-212"], "node": "............B" },
+    { "name": "S8 relu_out",  "wave": "x...............======", "data": ["-1","-1","-2","-2","-2","-1"], "node": "...............C" }
+  ],
+  {},
+  ["POOL",
+    { "name": "S9 pool_write","wave": "0.....................", "data": [], "node": "" }
+  ]
+],
+  "edge": [ "A~>B", "B~>C rescale>>nb + relu" ],
+  "head": { "text": "cp_block REAL run-time timing - Conv1 (in_ch=1), sample0. cy0=enter CONV1. Prefetch/padding cy0-5 (compute_en at cy6). First tree_out cy10 (p0=6), first acc_final cy12 (p0=-98), first relu_out cy16. One output every cycle." },
+  "foot": { "text": "pool_write first asserts at cy21 (outside this 22-cycle window), then every 5 cycles. Each column = 1 clock." },
+  "config": { "hscale": 2 }
+}

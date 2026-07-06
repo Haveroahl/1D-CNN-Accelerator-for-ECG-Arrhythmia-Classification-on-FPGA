@@ -127,6 +127,8 @@ khác nhau (bội-2, ≤8 mỗi layer), miễn nạp kèm weight/bias/FC khớp.
 ## Module List
 
 > Bảng port/interface đầy đủ của 11 module compute-core (verbatim từ RTL): [docs/module_interfaces.md](docs/module_interfaces.md) (kèm bản LaTeX paste-ready).
+>
+> **Hai bản RTL:** `hardware/RTL/` = production (weight-load qua Avalon + runtime topology config, Phase B01). `hardware/RTL_rom/` = bản ROM nạp-một-lần cho luận văn: giữ nguyên mọi module split + fix timing, nhưng bỏ hết cổng bus/cfg — weight bake vào ROM (`$readmemh`), topology Chapman hard-code trong `cnn_controller`. Verify bit-exact 21/21 qua `fpga/simulation/questa/run_tb_rom.do`.
 
 | Module | File | Status |
 |--------|------|--------|

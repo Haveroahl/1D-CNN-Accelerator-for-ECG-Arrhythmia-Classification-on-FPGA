@@ -14,7 +14,8 @@
 // 2^w_shift[fc], so the FC bias is pre-scaled by 2^w_shift[fc] (fc_bias.hex,
 // INT32) to be commensurate with fc_acc, and seeded into fc_acc before the MACs.
 //
-// ROM single-load build: FC weights baked in via $readmemh (in fc_unit); no bus.
+// Build variant: +define+NO_WEIGHT_INIT (handled in fc_unit) skips the $readmemh
+// of fc_weights.hex / fc_bias.hex → FC weights MUST be bus-loaded.
 
 module gap_fc_argmax (
     input  wire        clk,
@@ -29,8 +30,24 @@ module gap_fc_argmax (
     // Ping SRAM data (Conv4 output, 8 channels × 4 entries)
     input  wire [63:0] ping_dout,               // packed: ping_dout[ch*8+:8], 1-cy latency
 
+    // Conv4 active-output mask (= cp_en of Conv4). Channels with mask bit 0 were
+    // never written this inference, so their ping bank holds stale data; GAP
+    // forces their pooled value to 0 so a reduced Conv4 out_ch (e.g. 2/4/6) is
+    // bit-exact without the driver having to zero-pad FC weights. Default 8'hFF
+    // (all active) reproduces the original full-8-channel behavior.
+    input  wire [7:0]  out_ch_mask,
+
     // Ping SRAM read address (to top-level → ping_pong_sram rd_addr)
     output wire [8:0]  gap_rd_addr,    // broadcast to all 8 channels (0..3)
+
+    // ── FC weight write port (bus, Phase B01 runtime reload) ────────────────
+    // fc_w (32 × INT8, addr=k*8+i) and fc_b (4 × INT32) are FF arrays; the bus
+    // adapter writes them before inference. fcw_wr_addr[5] selects bias region:
+    //   fcw_wr_addr[5]=0 → fc_w[addr[4:0]]   (INT8 in data[7:0])
+    //   fcw_wr_addr[5]=1 → fc_b[addr[1:0]]   (INT32 in data[31:0])
+    input  wire        fcw_wr_en,
+    input  wire [5:0]  fcw_wr_addr,
+    input  wire [31:0] fcw_wr_data,
 
     // Outputs
     output wire [1:0]  result          // argmax class index
@@ -47,6 +64,7 @@ module gap_fc_argmax (
         .fc_sub_state (fc_sub_state),
         .gap_step     (gap_step),
         .ping_dout    (ping_dout),
+        .out_ch_mask  (out_ch_mask),
         .gap_rd_addr  (gap_rd_addr),
         .gap_reg_flat (gap_reg_flat)
     );
@@ -58,6 +76,9 @@ module gap_fc_argmax (
         .fc_sub_state (fc_sub_state),
         .fc_step      (fc_step),
         .gap_reg_flat (gap_reg_flat),
+        .fcw_wr_en    (fcw_wr_en),
+        .fcw_wr_addr  (fcw_wr_addr),
+        .fcw_wr_data  (fcw_wr_data),
         .fc_acc_flat  (fc_acc_flat)
     );
 

@@ -14,6 +14,13 @@ module cnn_controller (
     // All active blocks write simultaneously — use ch0 as representative
     input  wire        pool_write,
 
+    // ── Topology config (packed per-layer, from avalon_slave) ──────────
+    // Layer L = bit-slice [L*W +: W]. L0=Conv1 .. L3=Conv4. Reset defaults
+    // in avalon_slave reproduce the original (1,4,4,8)/(0F,0F,FF,FF)/(8,6,6,7).
+    input  wire [15:0] cfg_in_ch,    // 4 × 4-bit
+    input  wire [31:0] cfg_cp_en,    // 4 × 8-bit
+    input  wire [19:0] cfg_nb,       // 4 × 5-bit
+
     // Outputs to cp_engine
     output reg  [3:0]  a,             // channel counter 0..IN_CH-1
     output reg  [11:0] t,             // output position counter
@@ -62,22 +69,16 @@ module cnn_controller (
                ARGMAX_SUB = 3'd4,
                DONE_SUB   = 3'd5;
 
-    // ── Per-layer topology (hard-coded Chapman — ROM single-load build) ─────
-    // Fixed topology baked in: in_ch = 1/4/4/8, cp_en = 0F/0F/FF/FF, nb = 8/6/6/7
-    // for Conv1..4. (Production uses runtime cfg_* ports; this ROM variant does not.)
-    // Same accessor signatures as before so all call sites are unchanged.
-    function [3:0] cfg_in_ch_of; input [1:0] li;
-        case (li) 2'd0: cfg_in_ch_of = 4'd1; 2'd1: cfg_in_ch_of = 4'd4;
-                  2'd2: cfg_in_ch_of = 4'd4; default: cfg_in_ch_of = 4'd8; endcase
-    endfunction
-    function [7:0] cfg_cp_en_of; input [1:0] li;
-        case (li) 2'd0: cfg_cp_en_of = 8'h0F; 2'd1: cfg_cp_en_of = 8'h0F;
-                  2'd2: cfg_cp_en_of = 8'hFF; default: cfg_cp_en_of = 8'hFF; endcase
-    endfunction
-    function [3:0] cfg_nb_of;    input [1:0] li;
-        case (li) 2'd0: cfg_nb_of = 4'd8; 2'd1: cfg_nb_of = 4'd6;
-                  2'd2: cfg_nb_of = 4'd6; default: cfg_nb_of = 4'd7; endcase
-    endfunction
+    // NB / in_ch / cp_en are now runtime-config (see cfg_* ports + accessors
+    // below). Default Chapman values (nb=8,6,6,7) come from avalon_slave reset.
+
+    // ── Per-layer config accessors (li = 0..3 for Conv1..4) ────────────────
+    // Replaces the old hard-coded in_ch / cp_en / nb literals. The transition
+    // block selects li for the NEXT layer; LOAD_INPUT uses li=0 (Conv1).
+    function [3:0] cfg_in_ch_of; input [1:0] li; cfg_in_ch_of = cfg_in_ch[li*4 +: 4]; endfunction
+    function [7:0] cfg_cp_en_of; input [1:0] li; cfg_cp_en_of = cfg_cp_en[li*8 +: 8]; endfunction
+    // cfg_nb is packed 5-bit/layer in avalon_slave; nb max used = 8 → take low 4 bits.
+    function [3:0] cfg_nb_of;    input [1:0] li; cfg_nb_of    = cfg_nb   [li*5 +: 4]; endfunction
 
     // ── Derived signals ────────────────────────────────────────────────────
     // IN_LEN per layer: Conv1=2500, Conv2=500, Conv3=100, Conv4=20

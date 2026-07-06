@@ -12,7 +12,8 @@
 // gap_reg comes in flattened (gap_reg_flat[ch*8+:8]); fc_acc goes out flattened
 // (fc_acc_flat[k*32+:32]).
 //
-// ROM single-load build: fc_w/fc_b are baked in via $readmemh; no runtime bus reload.
+// Build variant: +define+NO_WEIGHT_INIT skips the $readmemh init so the FC
+// weight/bias MUST be loaded via the bus write port (proves the load path).
 
 module fc_unit (
     input  wire        clk,
@@ -24,6 +25,15 @@ module fc_unit (
 
     // GAP output (INT8 per channel), flattened
     input  wire [63:0] gap_reg_flat,
+
+    // ── FC weight write port (bus, Phase B01 runtime reload) ────────────────
+    // fc_w (32 × INT8, addr=k*8+i) and fc_b (4 × INT32) are FF arrays; the bus
+    // adapter writes them before inference. fcw_wr_addr[5] selects bias region:
+    //   fcw_wr_addr[5]=0 → fc_w[addr[4:0]]   (INT8 in data[7:0])
+    //   fcw_wr_addr[5]=1 → fc_b[addr[1:0]]   (INT32 in data[31:0])
+    input  wire        fcw_wr_en,
+    input  wire [5:0]  fcw_wr_addr,
+    input  wire [31:0] fcw_wr_data,
 
     // FC logits (INT32 per neuron), flattened
     output wire [127:0] fc_acc_flat
@@ -49,9 +59,21 @@ module fc_unit (
     // FC bias: 4 × INT32, scaled by 2^w_shift[fc] (logit domain). Seeded into
     // fc_acc at fc_step==0 so the MAC accumulation adds it for free.
     reg signed [31:0] fc_b [0:3];
+`ifndef NO_WEIGHT_INIT
     initial begin
         $readmemh("fc_weights.hex", fc_w);
         $readmemh("fc_bias.hex", fc_b);
+    end
+`endif
+
+    // ── FC weight/bias write (bus) ──────────────────────────────────────────
+    always @(posedge clk) begin
+        if (fcw_wr_en) begin
+            if (fcw_wr_addr[5])
+                fc_b[fcw_wr_addr[1:0]] <= $signed(fcw_wr_data);
+            else
+                fc_w[fcw_wr_addr[4:0]] <= $signed(fcw_wr_data[7:0]);
+        end
     end
 
     // ── FC datapath ────────────────────────────────────────────────────────

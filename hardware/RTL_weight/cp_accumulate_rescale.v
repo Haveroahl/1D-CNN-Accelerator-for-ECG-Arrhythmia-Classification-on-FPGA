@@ -117,7 +117,7 @@ module cp_accumulate_rescale (
             rescale_v2 <= rescale_v1;
             if (rescale_v1)
                 clamped <= (shifted > 32'sd127)  ?  8'sd127 :
-                           (shifted < -32'sd127) ? -8'sd127 : 8'(shifted[7:0]);
+                           (shifted < -32'sd127) ? -8'sd127 : shifted[7:0];
         end
     end
 

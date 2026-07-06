@@ -128,7 +128,7 @@ khác nhau (bội-2, ≤8 mỗi layer), miễn nạp kèm weight/bias/FC khớp.
 
 > Bảng port/interface đầy đủ của 11 module compute-core (verbatim từ RTL): [docs/module_interfaces.md](docs/module_interfaces.md) (kèm bản LaTeX paste-ready).
 >
-> **Hai bản RTL:** `hardware/RTL/` = production (weight-load qua Avalon + runtime topology config, Phase B01). `hardware/RTL_rom/` = bản ROM nạp-một-lần cho luận văn: giữ nguyên mọi module split + fix timing, nhưng bỏ hết cổng bus/cfg — weight bake vào ROM (`$readmemh`), topology Chapman hard-code trong `cnn_controller`. Verify bit-exact 21/21 qua `fpga/simulation/questa/run_tb_rom.do`.
+> **Ba bản RTL:** `hardware/RTL/` = **bản chính luận văn** = ROM nạp-một-lần: giữ nguyên mọi module split + fix timing, nhưng bỏ hết cổng bus/cfg — weight bake vào ROM (`$readmemh`), topology Chapman hard-code trong `cnn_controller`. Verify bit-exact 21/21 qua `fpga/simulation/questa/run_tb_rtl_rom.do` (`.qsf` synthesis đã trỏ bản này). `hardware/RTL_weight/` = production weight-load qua Avalon + runtime topology config (Phase B01, dùng cho C3 cross-dataset / C5 reload / Elastic-Pareto). `hardware/RTL_rom/` = bản sao ROM để tham chiếu (nội dung = `RTL/`).
 
 | Module | File | Status |
 |--------|------|--------|

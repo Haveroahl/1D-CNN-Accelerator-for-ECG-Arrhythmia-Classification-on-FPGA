@@ -35,6 +35,24 @@ module ecg_accelerator_top (
     wire [11:0] input_rd_addr;
     wire [7:0]  input_dout;
 
+    // ── Weight-load wires (avalon_slave → ecg_core, Phase B01) ─────────
+    wire        w_wr_en;
+    wire [2:0]  w_wr_oc;
+    wire [4:0]  w_wr_word;
+    wire [39:0] w_wr_data;
+    wire        b_wr_en;
+    wire [4:0]  b_wr_addr;
+    wire [31:0] b_wr_data;
+    wire        fcw_wr_en;
+    wire [5:0]  fcw_wr_addr;
+    wire [31:0] fcw_wr_data;
+
+    // ── Topology config (avalon_slave → ecg_core) ─────────────────────
+    wire [15:0] cfg_in_ch;
+    wire [31:0] cfg_cp_en;
+    wire [19:0] cfg_nb;
+    wire [19:0] cfg_base;
+
     // ── avalon_slave (bus adapter) ─────────────────────────────────────
     avalon_slave u_avs (
         .clk          (clk),
@@ -50,7 +68,21 @@ module ecg_accelerator_top (
         .start        (start),
         .busy         (busy),
         .done         (done),
-        .result       (result)
+        .result       (result),
+        .w_wr_en      (w_wr_en),
+        .w_wr_oc      (w_wr_oc),
+        .w_wr_word    (w_wr_word),
+        .w_wr_data    (w_wr_data),
+        .b_wr_en      (b_wr_en),
+        .b_wr_addr    (b_wr_addr),
+        .b_wr_data    (b_wr_data),
+        .fcw_wr_en    (fcw_wr_en),
+        .fcw_wr_addr  (fcw_wr_addr),
+        .fcw_wr_data  (fcw_wr_data),
+        .cfg_in_ch    (cfg_in_ch),
+        .cfg_cp_en    (cfg_cp_en),
+        .cfg_nb       (cfg_nb),
+        .cfg_base     (cfg_base)
     );
 
     // ── input_sram (input I/O buffer — host writes, core reads) ────────
@@ -72,7 +104,21 @@ module ecg_accelerator_top (
         .start        (start),
         .busy         (busy),
         .done         (done),
-        .result       (result)
+        .result       (result),
+        .w_wr_en      (w_wr_en),
+        .w_wr_oc      (w_wr_oc),
+        .w_wr_word    (w_wr_word),
+        .w_wr_data    (w_wr_data),
+        .b_wr_en      (b_wr_en),
+        .b_wr_addr    (b_wr_addr),
+        .b_wr_data    (b_wr_data),
+        .fcw_wr_en    (fcw_wr_en),
+        .fcw_wr_addr  (fcw_wr_addr),
+        .fcw_wr_data  (fcw_wr_data),
+        .cfg_in_ch    (cfg_in_ch),
+        .cfg_cp_en    (cfg_cp_en),
+        .cfg_nb       (cfg_nb),
+        .cfg_base     (cfg_base)
     );
 
 endmodule

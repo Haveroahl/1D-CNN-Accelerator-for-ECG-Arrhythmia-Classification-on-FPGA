@@ -33,6 +33,24 @@ module ecg_core (
     output wire [11:0] input_rd_addr,
     input  wire [7:0]  input_dout,
 
+    // ── Weight load (from bus adapter, Phase B01) ──────────────────────
+    input  wire        w_wr_en,
+    input  wire [2:0]  w_wr_oc,
+    input  wire [4:0]  w_wr_word,
+    input  wire [39:0] w_wr_data,
+    input  wire        b_wr_en,
+    input  wire [4:0]  b_wr_addr,
+    input  wire [31:0] b_wr_data,
+    input  wire        fcw_wr_en,
+    input  wire [5:0]  fcw_wr_addr,
+    input  wire [31:0] fcw_wr_data,
+
+    // ── Topology config (from bus adapter, packed per-layer) ───────────
+    input  wire [15:0] cfg_in_ch,    // 4 × 4-bit
+    input  wire [31:0] cfg_cp_en,    // 4 × 8-bit
+    input  wire [19:0] cfg_nb,       // 4 × 5-bit
+    input  wire [19:0] cfg_base,     // 4 × 5-bit
+
     // ── Control / status (with bus adapter) ────────────────────────────
     input  wire        start,
     output wire        busy,
@@ -117,7 +135,15 @@ module ecg_core (
         .pong_din         (cp_pong_din),
         .pong_we          (cp_pong_we),
         .sram_rd_addr     (cp_sram_rd_addr),
-        .sram_rd_addr_in  (ctrl_t)
+        .sram_rd_addr_in  (ctrl_t),
+        .w_wr_en          (w_wr_en),
+        .w_wr_oc          (w_wr_oc),
+        .w_wr_word        (w_wr_word),
+        .w_wr_data        (w_wr_data),
+        .b_wr_en          (b_wr_en),
+        .b_wr_addr        (b_wr_addr),
+        .b_wr_data        (b_wr_data),
+        .cfg_base         (cfg_base)
     );
 
     // ── gap_fc_argmax ──────────────────────────────────────────────────
@@ -129,7 +155,11 @@ module ecg_core (
         .fc_step      (ctrl_fc_step),
         .argmax_step  (ctrl_argmax_step),
         .ping_dout    (pp_dout),
+        .out_ch_mask  (cfg_cp_en[3*8 +: 8]),   // Conv4 active-output mask
         .gap_rd_addr  (gap_rd_addr),
+        .fcw_wr_en    (fcw_wr_en),
+        .fcw_wr_addr  (fcw_wr_addr),
+        .fcw_wr_data  (fcw_wr_data),
         .result       (gap_result)
     );
 
@@ -139,6 +169,9 @@ module ecg_core (
         .rst          (rst),
         .start        (start),
         .pool_write   (cp_pool_write),
+        .cfg_in_ch    (cfg_in_ch),
+        .cfg_cp_en    (cfg_cp_en),
+        .cfg_nb       (cfg_nb),
         .a            (ctrl_a),
         .t            (ctrl_t),
         .shift_en     (ctrl_shift_en),

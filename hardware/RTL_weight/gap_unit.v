@@ -3,8 +3,8 @@
 //
 // Reads Conv4 output from the Ping bank (8 channels × 4 entries), accumulates
 // over the 4 spatial positions, then GAP = floor(sum/4) = sum[9:2] (Conv4 has
-// ReLU so values are non-negative → no clamp). ROM single-load build: fixed
-// Chapman topology, all 8 Conv4 output channels are always active.
+// ReLU so values are non-negative → no clamp). Inactive Conv4 channels
+// (out_ch_mask[ch]=0) are forced to 0 so a reduced out_ch is bit-exact.
 //
 // Output gap_reg is flattened (Verilog-2001 forbids array ports):
 //   gap_reg_flat[ch*8 +: 8] — INT8 GAP output for channel ch.
@@ -19,6 +19,9 @@ module gap_unit (
 
     // Ping SRAM data (Conv4 output, 8 channels × 4 entries)
     input  wire [63:0] ping_dout,      // packed: ping_dout[ch*8+:8], 1-cy latency
+
+    // Conv4 active-output mask (= cp_en of Conv4). Default 8'hFF = all active.
+    input  wire [7:0]  out_ch_mask,
 
     // Ping SRAM read address (to top-level → ping_pong_sram rd_addr)
     output reg  [8:0]  gap_rd_addr,    // broadcast to all 8 channels (0..3)
@@ -82,9 +85,10 @@ module gap_unit (
                 end
                 4'd5: begin
                     // Conv4 RELU_EN=1 → gap_acc ∈ [0,508] → gap_acc[9:2] ∈ [0,127], no clamp.
-                    // Fixed Chapman topology: all 8 Conv4 channels active.
+                    // Inactive Conv4 channels (out_ch_mask[ch]=0) hold stale ping
+                    // data → force 0 so reduced out_ch is bit-exact.
                     for (ch_i = 0; ch_i < 8; ch_i = ch_i + 1)
-                        gap_reg[ch_i] <= $signed(gap_acc[ch_i][9:2]);
+                        gap_reg[ch_i] <= out_ch_mask[ch_i] ? gap_acc[ch_i][9:2] : 8'sd0;
                 end
                 default: ;
             endcase

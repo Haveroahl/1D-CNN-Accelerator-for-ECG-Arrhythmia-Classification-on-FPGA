@@ -6,13 +6,19 @@
 //   2. MUX: select SRW[a] each cycle → mux_s1 (1-stage, broadcast to all 8 cp_blocks)
 //   3. Delay chain: a → a_d5, compute_en → ce_d5  (5 cycles: mux_s1 + MULT + TREE×3)
 //   4. SRAM read address generation for Ping SRAM and Input SRAM
-//   5. 8 cp_block instances, weight from cp_weight_store (hard ROM, 40b/word packed)
+//   5. 8 cp_block instances, weight from 8 per-oc M10K RAMs (40b/word = 5 taps packed)
 //   6. Pool write gating: pool_write && cp_en[oc]
 //
-// Weight storage (ROM single-load build): 4 per-layer FF-array ROMs in
-//   cp_weight_store, indexed by layer_state + a. Async ROM MUX + 1 FF stage →
-//   w_packed valid at cy N+1. Weights baked in via $readmemh (conv1_w..conv4_w.hex);
-//   no runtime bus reload, fixed Chapman topology.
+// Weight storage (Phase B01 — runtime-loadable): 8 per-oc M10K RAMs, 40b × 32.
+//   w_ram0..7[0:31]  — one RAM per output channel; word = layer_base + ic.
+//     Default Chapman: Conv1 base=0 (1w) Conv2 base=1 (4w) Conv3 base=5 (4w)
+//     Conv4 base=9 (8w) = 17 words. Depth 32 covers the MAX topology
+//     in_ch=(8,8,8,8) (bases {0,8,16,24}, top word 31) for runtime reconfig.
+//   Read: 8 RAMs read the SAME word {layer_base+a} → 8 oc weights in parallel.
+//     M10K is SYNC-read: addr at cy N → q at cy N+1. That q register replaces
+//     the old async-ROM + w_packed FF stage, so pipeline alignment is identical.
+//   Write: w_wr_oc selects the RAM, full 40b/word (host sends lo+hi 32b halves).
+//   Init: $readmemh w_ram0..7.hex (unless +define+NO_WEIGHT_INIT); bus overrides.
 //
 // Bias: b_store[oc*4 + layer_idx], INT32 little-endian, from conv_bias.hex (32 entries)
 //
@@ -56,7 +62,29 @@ module cp_engine (
 
     // SRAM read address output (to top-level, feeds both input_sram and ping_pong_sram)
     output wire [11:0] sram_rd_addr,        // driven by t and rp logic in controller
-    input  wire [11:0] sram_rd_addr_in      // sram_rd_addr from controller
+    input  wire [11:0] sram_rd_addr_in,     // sram_rd_addr from controller
+
+    // ── Weight write port (from bus adapter, Phase B01 runtime reload) ──────
+    // Conv weights live in 8 per-oc M10K RAMs (one per output channel), each
+    // 40-bit × 32 words (word = layer_base + ic). To load one 40-bit entry the
+    // host issues TWO 32-bit writes (lo = bits[31:0], hi = bits[39:32]); the bus
+    // adapter assembles them and pulses w_wr_en for the whole 40-bit word.
+    //   w_wr_oc   : which of the 8 per-oc RAMs to write (0..7)
+    //   w_wr_word : RAM word index (0..31) = layer_base + ic
+    //   w_wr_data : full 40-bit packed 5-tap entry
+    // Bias write (b_store FF, 32 × INT32): b_wr_en + b_wr_addr + b_wr_data.
+    input  wire        w_wr_en,
+    input  wire [2:0]  w_wr_oc,
+    input  wire [4:0]  w_wr_word,
+    input  wire [39:0] w_wr_data,
+    input  wire        b_wr_en,
+    input  wire [4:0]  b_wr_addr,
+    input  wire [31:0] b_wr_data,
+
+    // ── Topology config: weight-RAM word base per layer (4 × 5-bit) ─────────
+    // Replaces the hard-coded {0,1,5,9} bases so a runtime-reconfigured channel
+    // layout (driver-loaded) lands its weights at the correct RAM words.
+    input  wire [19:0] cfg_base
 );
 
     // ── Layer state encoding (must match cnn_controller) ──────────────────
@@ -164,7 +192,9 @@ module cp_engine (
     end
 
     // ── Conv weight + bias storage (factored into cp_weight_store) ──────────
-    // Hard FF-array ROM (ROM single-load build), N+1 timing, weights via $readmemh.
+    // Two build variants — IDENTICAL ports, IDENTICAL N+1 timing → bit-exact:
+    //   default            V2 (Phase B01): 8× M10K weight RAM + bus reload (cfg_base)
+    //   +define+WEIGHT_ROM V1: hard FF-array ROM, no bus, fixed Chapman topology
     // Outputs are flattened (Verilog-2001 array-port restriction) → unpacked at
     // the cp_block instances via [oc*40 +: 40] / [oc*32 +: 32] slices.
     wire [319:0] w_packed_flat;   // 8 × 40b
@@ -174,6 +204,14 @@ module cp_engine (
         .rst           (rst),
         .layer_state   (layer_state),
         .a             (a),
+        .cfg_base      (cfg_base),
+        .w_wr_en       (w_wr_en),
+        .w_wr_oc       (w_wr_oc),
+        .w_wr_word     (w_wr_word),
+        .w_wr_data     (w_wr_data),
+        .b_wr_en       (b_wr_en),
+        .b_wr_addr     (b_wr_addr),
+        .b_wr_data     (b_wr_data),
         .w_packed_flat (w_packed_flat),
         .b_cur_flat    (b_cur_flat)
     );

@@ -29,7 +29,7 @@ module argmax_unit (
     genvar u;
     generate
         for (u = 0; u < 4; u = u + 1) begin : fc_unpack
-            assign fc_acc[u] = fc_acc_flat[u*32 +: 32];
+            assign fc_acc[u] = $signed(fc_acc_flat[u*32 +: 32]);
         end
     endgenerate
 

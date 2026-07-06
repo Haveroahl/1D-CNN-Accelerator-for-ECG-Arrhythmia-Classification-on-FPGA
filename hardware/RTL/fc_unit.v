@@ -48,7 +48,7 @@ module fc_unit (
     genvar u;
     generate
         for (u = 0; u < 8; u = u + 1) begin : gap_unpack
-            assign gap_reg[u] = gap_reg_flat[u*8 +: 8];
+            assign gap_reg[u] = $signed(gap_reg_flat[u*8 +: 8]);
         end
     endgenerate
 

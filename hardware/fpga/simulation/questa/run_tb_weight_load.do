@@ -19,7 +19,11 @@ vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardwar
 vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardware/RTL/cp_block.v}
 vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardware/RTL/cnn_controller.v}
 vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardware/RTL/avalon_slave.v}
+vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardware/RTL/gap_unit.v}
+vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardware/RTL/fc_unit.v}
+vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardware/RTL/argmax_unit.v}
 vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardware/RTL/gap_fc_argmax.v}
+vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardware/RTL/cp_weight_store.v}
 vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardware/RTL/cp_engine.v}
 
 vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/../hardware/testbench {D:/Thesis101/hardware/testbench/tb_weight_load.v}

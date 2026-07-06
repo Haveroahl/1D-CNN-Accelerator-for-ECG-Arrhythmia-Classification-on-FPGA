@@ -166,7 +166,7 @@ module tb_weight_load;
     task check_gap; integer i,mm; reg signed [9:0] d; begin
         mm=0;
         for (i=0;i<8;i=i+1) begin
-            d = $signed(u_top.u_core.u_gfa.gap_reg[i]) - $signed({gold_gap[i][7],gold_gap[i]});
+            d = $signed(u_top.u_core.u_gfa.u_gap.gap_reg[i]) - $signed({gold_gap[i][7],gold_gap[i]});
             if (d>10||d<-10) mm=mm+1;
         end
         if (mm==0) begin $display("[STAGE PASS] after_gap (bus weights)"); l2_pass=l2_pass+1; end
@@ -176,7 +176,7 @@ module tb_weight_load;
     task check_logits; integer i,mm; reg signed [31:0] d; begin
         mm=0;
         for (i=0;i<4;i=i+1) begin
-            d = $signed(u_top.u_core.u_gfa.fc_acc[i]) - $signed(gold_logits[i]);
+            d = $signed(u_top.u_core.u_gfa.u_fc.fc_acc[i]) - $signed(gold_logits[i]);
             if (d>10||d<-10) mm=mm+1;
         end
         if (mm==0) begin $display("[STAGE PASS] logits_fc (bus weights)"); l2_pass=l2_pass+1; end

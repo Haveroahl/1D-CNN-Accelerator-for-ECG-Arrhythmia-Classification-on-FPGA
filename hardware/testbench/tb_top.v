@@ -111,24 +111,24 @@ module tb_top;
                 $display("  [PROBE GAP step=%0d rd_addr=%0d] ping_dout=%016x",
                     u_top.u_core.ctrl_gap_step, u_top.u_core.u_gfa.gap_rd_addr, u_top.u_core.pp_dout);
                 $display("           gap_acc[0..7]=%03x %03x %03x %03x %03x %03x %03x %03x",
-                    u_top.u_core.u_gfa.gap_acc[0]&10'h3FF, u_top.u_core.u_gfa.gap_acc[1]&10'h3FF,
-                    u_top.u_core.u_gfa.gap_acc[2]&10'h3FF, u_top.u_core.u_gfa.gap_acc[3]&10'h3FF,
-                    u_top.u_core.u_gfa.gap_acc[4]&10'h3FF, u_top.u_core.u_gfa.gap_acc[5]&10'h3FF,
-                    u_top.u_core.u_gfa.gap_acc[6]&10'h3FF, u_top.u_core.u_gfa.gap_acc[7]&10'h3FF);
+                    u_top.u_core.u_gfa.u_gap.gap_acc[0]&10'h3FF, u_top.u_core.u_gfa.u_gap.gap_acc[1]&10'h3FF,
+                    u_top.u_core.u_gfa.u_gap.gap_acc[2]&10'h3FF, u_top.u_core.u_gfa.u_gap.gap_acc[3]&10'h3FF,
+                    u_top.u_core.u_gfa.u_gap.gap_acc[4]&10'h3FF, u_top.u_core.u_gfa.u_gap.gap_acc[5]&10'h3FF,
+                    u_top.u_core.u_gfa.u_gap.gap_acc[6]&10'h3FF, u_top.u_core.u_gfa.u_gap.gap_acc[7]&10'h3FF);
             end
             if (prev_gap_step == 4'd5 && fc_sub_state == 3'd2 /*FC_SUB*/ && prev_fc_sub_state == 3'd1) begin
                 $display("  [PROBE GAP DONE] gap_reg = %02x %02x %02x %02x %02x %02x %02x %02x",
-                    u_top.u_core.u_gfa.gap_reg[0], u_top.u_core.u_gfa.gap_reg[1],
-                    u_top.u_core.u_gfa.gap_reg[2], u_top.u_core.u_gfa.gap_reg[3],
-                    u_top.u_core.u_gfa.gap_reg[4], u_top.u_core.u_gfa.gap_reg[5],
-                    u_top.u_core.u_gfa.gap_reg[6], u_top.u_core.u_gfa.gap_reg[7]);
+                    u_top.u_core.u_gfa.u_gap.gap_reg[0], u_top.u_core.u_gfa.u_gap.gap_reg[1],
+                    u_top.u_core.u_gfa.u_gap.gap_reg[2], u_top.u_core.u_gfa.u_gap.gap_reg[3],
+                    u_top.u_core.u_gfa.u_gap.gap_reg[4], u_top.u_core.u_gfa.u_gap.gap_reg[5],
+                    u_top.u_core.u_gfa.u_gap.gap_reg[6], u_top.u_core.u_gfa.u_gap.gap_reg[7]);
             end
 
             // FC done (entering ARGMAX): dump fc_acc[0..3]
             if (prev_fc_sub_state == 3'd3 /*FC_FLUSH*/ && fc_sub_state == 3'd4 /*ARGMAX*/) begin
                 $display("  [PROBE FC_ACC] fc_acc = %08x %08x %08x %08x",
-                    u_top.u_core.u_gfa.fc_acc[0], u_top.u_core.u_gfa.fc_acc[1],
-                    u_top.u_core.u_gfa.fc_acc[2], u_top.u_core.u_gfa.fc_acc[3]);
+                    u_top.u_core.u_gfa.u_fc.fc_acc[0], u_top.u_core.u_gfa.u_fc.fc_acc[1],
+                    u_top.u_core.u_gfa.u_fc.fc_acc[2], u_top.u_core.u_gfa.u_fc.fc_acc[3]);
             end
         end
     end
@@ -550,7 +550,7 @@ module tb_top;
         begin
             mismatches = 0; first_bad = -1; first_rtl = 0; first_gold = 0;
             for (i = 0; i < 8; i = i + 1) begin
-                rtl_v  = $signed(u_top.u_core.u_gfa.gap_reg[i]);
+                rtl_v  = $signed(u_top.u_core.u_gfa.u_gap.gap_reg[i]);
                 gold_v = $signed({gold_gap[i][7], gold_gap[i]});
                 diff = rtl_v - gold_v;
                 g_total = g_total + 1;
@@ -582,7 +582,7 @@ module tb_top;
         begin
             mismatches = 0; first_bad = -1; first_rtl = 0; first_gold = 0;
             for (i = 0; i < 4; i = i + 1) begin
-                rtl_v  = $signed(u_top.u_core.u_gfa.fc_acc[i]);
+                rtl_v  = $signed(u_top.u_core.u_gfa.u_fc.fc_acc[i]);
                 gold_v = $signed(gold_logits[i]);
                 diff = rtl_v - gold_v;
                 g_total = g_total + 1;
@@ -846,6 +846,11 @@ module tb_top;
             end
         end
 
+`ifndef WEIGHT_ROM
+        // TC08–TC10 exercise the Phase B01 bus path: runtime topology config,
+        // GAP mask and weight-RAM writes. The V1 hard-ROM build (+define+WEIGHT_ROM)
+        // has none of these (fixed Chapman topology, no bus, no w_ram*), so they
+        // are compiled out there — the core 21 bit-exact checkpoints still run.
         // ── TC08: Runtime topology config path (driver-loadable channels) ──
         // Proves the CONFIG window actually drives the datapath, two ways:
         //   (a) NEGATIVE: corrupt Conv4 in_ch=1 (instead of 8) — the engine then
@@ -890,7 +895,7 @@ module tb_top;
             run_inference(cls08, cyc08);
             ndiff = 0;
             for (li = 0; li < 4; li = li + 1)
-                if ($signed(u_top.u_core.u_gfa.fc_acc[li]) !== $signed(gold_logits[li]))
+                if ($signed(u_top.u_core.u_gfa.u_fc.fc_acc[li]) !== $signed(gold_logits[li]))
                     ndiff = ndiff + 1;
             if (ndiff > 0) begin
                 $display("PASS [TC08a_cfg_consumed] broken Conv4 in_ch changed %0d/4 logits vs golden  (%0t ns)", ndiff, $time - tc_t0);
@@ -920,7 +925,7 @@ module tb_top;
             // Bit-exact recovery: config-driven path must equal reset-default path.
             ndiff = 0;
             for (li = 0; li < 4; li = li + 1)
-                if ($signed(u_top.u_core.u_gfa.fc_acc[li]) !== $signed(gold_logits[li]))
+                if ($signed(u_top.u_core.u_gfa.u_fc.fc_acc[li]) !== $signed(gold_logits[li]))
                     ndiff = ndiff + 1;
             if (cls08 === expected_results[0] && ndiff == 0) begin
                 $display("PASS [TC08b_cfg_recover] explicit Chapman config -> class=%0d, logits bit-exact  (%0t ns)",
@@ -962,9 +967,9 @@ module tb_top;
             gap0   = $signed({gold_gap[MASK_CH][7], gold_gap[MASK_CH]});
             mism09 = 0;
             for (k = 0; k < 4; k = k + 1) begin
-                fcw      = $signed(u_top.u_core.u_gfa.fc_w[k*8 + MASK_CH]);
+                fcw      = $signed(u_top.u_core.u_gfa.u_fc.fc_w[k*8 + MASK_CH]);
                 expect_k = $signed(gold_logits[k]) - gap0 * fcw;
-                got_k    = $signed(u_top.u_core.u_gfa.fc_acc[k]);
+                got_k    = $signed(u_top.u_core.u_gfa.u_fc.fc_acc[k]);
                 if (got_k !== expect_k) begin
                     mism09 = mism09 + 1;
                     $display("    logit[%0d]: got=%0d expect=%0d (golden=%0d - gap0*w=%0d)",
@@ -1000,16 +1005,17 @@ module tb_top;
             bus_wr14(14'h2000 | off_lo[10:0], wexp[31:0]);          // lo half
             bus_wr14(14'h2000 | off_hi[10:0], {24'h0, wexp[39:32]}); // hi half → w_wr_en
             @(posedge clk); #1;            // let the write commit
-            if (u_top.u_core.u_cpe.w_ram7[31] === wexp) begin
+            if (u_top.u_core.u_cpe.u_wstore.w_ram7[31] === wexp) begin
                 $display("PASS [TC10_depth32_topword] w_ram7[31]=%010x lands via bus  (%0t ns)",
-                         u_top.u_core.u_cpe.w_ram7[31], $time - tc_t0);
+                         u_top.u_core.u_cpe.u_wstore.w_ram7[31], $time - tc_t0);
                 pass_cnt = pass_cnt + 1;
             end else begin
                 $display("FAIL [TC10_depth32_topword] w_ram7[31]=%010x expected %010x  (%0t ns)",
-                         u_top.u_core.u_cpe.w_ram7[31], wexp, $time - tc_t0);
+                         u_top.u_core.u_cpe.u_wstore.w_ram7[31], wexp, $time - tc_t0);
                 fail_cnt = fail_cnt + 1;
             end
         end
+`endif
 
         // ── Summary ────────────────────────────────────────────────────
         $display("=== tb_top SUMMARY: %0d PASS, %0d FAIL ===", pass_cnt, fail_cnt);

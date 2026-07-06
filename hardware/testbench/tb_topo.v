@@ -115,17 +115,17 @@ module tb_topo;
     task load_topo_weights;
         input [255:0] tag_dir;   // e.g. "topo_golden/min2222/"
         begin
-            $readmemh({tag_dir, "w_ram0.hex"},   u_top.u_core.u_cpe.w_ram0);
-            $readmemh({tag_dir, "w_ram1.hex"},   u_top.u_core.u_cpe.w_ram1);
-            $readmemh({tag_dir, "w_ram2.hex"},   u_top.u_core.u_cpe.w_ram2);
-            $readmemh({tag_dir, "w_ram3.hex"},   u_top.u_core.u_cpe.w_ram3);
-            $readmemh({tag_dir, "w_ram4.hex"},   u_top.u_core.u_cpe.w_ram4);
-            $readmemh({tag_dir, "w_ram5.hex"},   u_top.u_core.u_cpe.w_ram5);
-            $readmemh({tag_dir, "w_ram6.hex"},   u_top.u_core.u_cpe.w_ram6);
-            $readmemh({tag_dir, "w_ram7.hex"},   u_top.u_core.u_cpe.w_ram7);
-            $readmemh({tag_dir, "conv_bias.hex"},  u_top.u_core.u_cpe.b_store);
-            $readmemh({tag_dir, "fc_weights.hex"}, u_top.u_core.u_gfa.fc_w);
-            $readmemh({tag_dir, "fc_bias.hex"},    u_top.u_core.u_gfa.fc_b);
+            $readmemh({tag_dir, "w_ram0.hex"},   u_top.u_core.u_cpe.u_wstore.w_ram0);
+            $readmemh({tag_dir, "w_ram1.hex"},   u_top.u_core.u_cpe.u_wstore.w_ram1);
+            $readmemh({tag_dir, "w_ram2.hex"},   u_top.u_core.u_cpe.u_wstore.w_ram2);
+            $readmemh({tag_dir, "w_ram3.hex"},   u_top.u_core.u_cpe.u_wstore.w_ram3);
+            $readmemh({tag_dir, "w_ram4.hex"},   u_top.u_core.u_cpe.u_wstore.w_ram4);
+            $readmemh({tag_dir, "w_ram5.hex"},   u_top.u_core.u_cpe.u_wstore.w_ram5);
+            $readmemh({tag_dir, "w_ram6.hex"},   u_top.u_core.u_cpe.u_wstore.w_ram6);
+            $readmemh({tag_dir, "w_ram7.hex"},   u_top.u_core.u_cpe.u_wstore.w_ram7);
+            $readmemh({tag_dir, "conv_bias.hex"},  u_top.u_core.u_cpe.u_wstore.b_store);
+            $readmemh({tag_dir, "fc_weights.hex"}, u_top.u_core.u_gfa.u_fc.fc_w);
+            $readmemh({tag_dir, "fc_bias.hex"},    u_top.u_core.u_gfa.u_fc.fc_b);
         end
     endtask
 
@@ -167,7 +167,7 @@ module tb_topo;
                 integer gi, ndg;
                 ndg = 0;
                 for (gi = 0; gi < 8; gi = gi + 1)
-                    if ($signed(u_top.u_core.u_gfa.gap_reg[gi]) !==
+                    if ($signed(u_top.u_core.u_gfa.u_gap.gap_reg[gi]) !==
                         $signed({gold_gap[gi][7], gold_gap[gi]})) ndg = ndg + 1;
                 if (ndg != 0)
                     $display("    [%0s] WARN gap mismatch=%0d/8", tag, ndg);
@@ -175,7 +175,7 @@ module tb_topo;
             // compare logits bit-exact (final verdict)
             ndiff = 0;
             for (k = 0; k < 4; k = k + 1) begin
-                got = $signed(u_top.u_core.u_gfa.fc_acc[k]);
+                got = $signed(u_top.u_core.u_gfa.u_fc.fc_acc[k]);
                 exp = $signed(gold_logits[k]);
                 if (got !== exp) begin
                     ndiff = ndiff + 1;

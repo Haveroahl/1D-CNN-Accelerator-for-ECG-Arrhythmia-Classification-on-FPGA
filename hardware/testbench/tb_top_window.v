@@ -118,24 +118,24 @@ module tb_top_window;
                 $display("  [PROBE GAP step=%0d rd_addr=%0d] ping_dout=%016x",
                     u_top.u_core.ctrl_gap_step, u_top.u_core.u_gfa.gap_rd_addr, u_top.u_core.pp_dout);
                 $display("           gap_acc[0..7]=%03x %03x %03x %03x %03x %03x %03x %03x",
-                    u_top.u_core.u_gfa.gap_acc[0]&10'h3FF, u_top.u_core.u_gfa.gap_acc[1]&10'h3FF,
-                    u_top.u_core.u_gfa.gap_acc[2]&10'h3FF, u_top.u_core.u_gfa.gap_acc[3]&10'h3FF,
-                    u_top.u_core.u_gfa.gap_acc[4]&10'h3FF, u_top.u_core.u_gfa.gap_acc[5]&10'h3FF,
-                    u_top.u_core.u_gfa.gap_acc[6]&10'h3FF, u_top.u_core.u_gfa.gap_acc[7]&10'h3FF);
+                    u_top.u_core.u_gfa.u_gap.gap_acc[0]&10'h3FF, u_top.u_core.u_gfa.u_gap.gap_acc[1]&10'h3FF,
+                    u_top.u_core.u_gfa.u_gap.gap_acc[2]&10'h3FF, u_top.u_core.u_gfa.u_gap.gap_acc[3]&10'h3FF,
+                    u_top.u_core.u_gfa.u_gap.gap_acc[4]&10'h3FF, u_top.u_core.u_gfa.u_gap.gap_acc[5]&10'h3FF,
+                    u_top.u_core.u_gfa.u_gap.gap_acc[6]&10'h3FF, u_top.u_core.u_gfa.u_gap.gap_acc[7]&10'h3FF);
             end
             if (prev_gap_step == 4'd5 && fc_sub_state == 3'd2 /*FC_SUB*/ && prev_fc_sub_state == 3'd1) begin
                 $display("  [PROBE GAP DONE] gap_reg = %02x %02x %02x %02x %02x %02x %02x %02x",
-                    u_top.u_core.u_gfa.gap_reg[0], u_top.u_core.u_gfa.gap_reg[1],
-                    u_top.u_core.u_gfa.gap_reg[2], u_top.u_core.u_gfa.gap_reg[3],
-                    u_top.u_core.u_gfa.gap_reg[4], u_top.u_core.u_gfa.gap_reg[5],
-                    u_top.u_core.u_gfa.gap_reg[6], u_top.u_core.u_gfa.gap_reg[7]);
+                    u_top.u_core.u_gfa.u_gap.gap_reg[0], u_top.u_core.u_gfa.u_gap.gap_reg[1],
+                    u_top.u_core.u_gfa.u_gap.gap_reg[2], u_top.u_core.u_gfa.u_gap.gap_reg[3],
+                    u_top.u_core.u_gfa.u_gap.gap_reg[4], u_top.u_core.u_gfa.u_gap.gap_reg[5],
+                    u_top.u_core.u_gfa.u_gap.gap_reg[6], u_top.u_core.u_gfa.u_gap.gap_reg[7]);
             end
 
             // FC done (entering ARGMAX): dump fc_acc[0..3]
             if (prev_fc_sub_state == 3'd3 /*FC_FLUSH*/ && fc_sub_state == 3'd4 /*ARGMAX*/) begin
                 $display("  [PROBE FC_ACC] fc_acc = %08x %08x %08x %08x",
-                    u_top.u_core.u_gfa.fc_acc[0], u_top.u_core.u_gfa.fc_acc[1],
-                    u_top.u_core.u_gfa.fc_acc[2], u_top.u_core.u_gfa.fc_acc[3]);
+                    u_top.u_core.u_gfa.u_fc.fc_acc[0], u_top.u_core.u_gfa.u_fc.fc_acc[1],
+                    u_top.u_core.u_gfa.u_fc.fc_acc[2], u_top.u_core.u_gfa.u_fc.fc_acc[3]);
             end
         end
     end
@@ -520,7 +520,7 @@ module tb_top_window;
         begin
             mismatches = 0; first_bad = -1; first_rtl = 0; first_gold = 0;
             for (i = 0; i < 8; i = i + 1) begin
-                rtl_v  = $signed(u_top.u_core.u_gfa.gap_reg[i]);
+                rtl_v  = $signed(u_top.u_core.u_gfa.u_gap.gap_reg[i]);
                 gold_v = $signed({gold_gap[i][7], gold_gap[i]});
                 diff = rtl_v - gold_v;
                 g_total = g_total + 1;
@@ -552,7 +552,7 @@ module tb_top_window;
         begin
             mismatches = 0; first_bad = -1; first_rtl = 0; first_gold = 0;
             for (i = 0; i < 4; i = i + 1) begin
-                rtl_v  = $signed(u_top.u_core.u_gfa.fc_acc[i]);
+                rtl_v  = $signed(u_top.u_core.u_gfa.u_fc.fc_acc[i]);
                 gold_v = $signed(gold_logits[i]);
                 diff = rtl_v - gold_v;
                 g_total = g_total + 1;

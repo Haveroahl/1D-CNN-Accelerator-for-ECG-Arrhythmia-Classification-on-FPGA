@@ -13,6 +13,9 @@ vlog -work work +incdir+$R $R/cp_pool.v
 vlog -work work +incdir+$R $R/cp_block.v
 vlog -work work +incdir+$R $R/cp_engine.v
 vlog -work work +incdir+$R $R/cnn_controller.v
+vlog -work work +incdir+$R $R/gap_unit.v
+vlog -work work +incdir+$R $R/fc_unit.v
+vlog -work work +incdir+$R $R/argmax_unit.v
 vlog -work work +incdir+$R $R/gap_fc_argmax.v
 vlog -work work +incdir+$R $R/avalon_slave.v
 vlog -work work +incdir+$R $R/ecg_core.v

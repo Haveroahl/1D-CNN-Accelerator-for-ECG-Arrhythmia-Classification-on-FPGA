@@ -1,14 +1,15 @@
-# Manifest-driven channel-scalable coverage sweep (companion to run_tb_topo.do).
-# Generate golden + manifest first:
+# Requires golden in topo_golden/<tag>/ — generate first with:
 #   cd software/python && python gen_topo_golden.py \
 #     --ecg ../../hardware/fpga/simulation/questa/ecg_sample0.hex \
 #     --output_dir ../../hardware/fpga/simulation/questa/topo_golden
-# tb_topo_sweep reads topo_golden/topo_manifest.txt and runs every listed topology.
+# Plus a topo_golden/chapman/ dir (after_gap.mem + logits_fc.mem copied from the
+# real golden/sample0) for the harness self-check.
 transcript on
 if {[file exists rtl_work]} { vdel -lib rtl_work -all }
 vlib rtl_work
 vmap work rtl_work
 
+# NO_WEIGHT_INIT: skip default Chapman $readmemh — tb_topo loads topo weights.
 set DEF +define+NO_WEIGHT_INIT
 
 vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardware/RTL/ping_pong_sram.v}
@@ -28,7 +29,7 @@ vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardwar
 vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardware/RTL/cp_weight_store.v}
 vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/RTL {D:/Thesis101/hardware/RTL/cp_engine.v}
 
-vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/testbench {D:/Thesis101/hardware/testbench/tb_topo_sweep.v}
+vlog -sv $DEF -work work +incdir+D:/Thesis101/hardware/testbench {D:/Thesis101/hardware/testbench/tb_topo.v}
 
-vsim -t 1ps -L rtl_work -L work -voptargs="+acc" tb_topo_sweep
+vsim -t 1ps -L rtl_work -L work -voptargs="+acc" tb_topo
 run -all

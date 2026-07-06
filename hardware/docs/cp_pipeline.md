@@ -10,9 +10,9 @@ S2       ADDER stage-1       reg     1 cy      sum01, sum23, delay prod[4]
 S3       ADDER stage-2       reg     1 cy      sum0123, delay prod[4]
 S4       ADDER stage-3       reg     1 cy      tree_out (20-bit)
 S5       ACC × IN_CH         reg     IN_CH cy  RST khi a_in(=a_d5)=0, accumulate while compute_en_in
-S5b      ACC_FINAL           reg     1 cy      acc + tree_sext → acc_final_r (1 adder)
-S_bias   +BIAS               reg     1 cy      acc_final_r + bias_in (1 adder)
-S6       RESCALE stage-1     reg     1 cy      (biased + round_add) >>> nb
+S5b      ACC_FINAL           reg     1 cy      acc + tree_sext → acc_final_r (1 adder); bias+round already folded at S5
+S_bias   +BIAS               reg     1 cy      passthrough (bias folded into acc-init) — kept for depth/valid timing
+S6       RESCALE stage-1     reg     1 cy      biased >>> nb (pure shift; round_add folded into acc-init at S5/S5b)
 S7       RESCALE stage-2     reg     1 cy      clamp [-127, 127]
 S8       ReLU                reg     1 cy      chỉ Conv4 (relu_en=1)
 S9       MaxPool comparator  reg     1 cy/hit  rolling max, chốt sau 5 relu_v
@@ -27,19 +27,26 @@ Total    IN_CH + 9 cycles/output_position (steady-state)
 
 **Valid chain:** `out_valid → acc_final_v → bias_valid → rescale_v1 → rescale_v2 → relu_v`
 
-## round_add — Critical Path Fix
+## round_add — Critical Path Fix (folded into acc-init)
 
-S6 dùng `round_add` precomputed as wire (giảm critical path từ ~4 ops → ~2 ops):
+`round_add` (round-half-up) **và** `bias` được fold vào acc-init term (`a_in==0`) ở
+S5/S5b, nên S6 chỉ còn 1 barrel shift thuần — cả +bias lẫn +round rời khỏi critical path:
 
 ```verilog
 wire signed [31:0] round_add;
-assign round_add = (nb > 5'd0) ? (32'sd1 << (nb - 5'd1)) : 32'sd0;
+assign round_add = (nb > 4'd0) ? (32'sd1 << (nb - 4'd1)) : 32'sd0;
 
-// S6: chỉ còn add + shift trên register-to-register path
-shifted <= (biased + round_add) >>> nb;
+// S5: fold bias + round_add vào init khi a_in==0
+if (a_in == 0) acc <= tree_sext + bias_in + round_add;
+else           acc <= acc + tree_sext;
+
+// S6: pure arithmetic shift (round đã cộng ở acc-init)
+shifted <= biased >>> nb;
 ```
 
-Vì `nb` cố định mỗi layer, Quartus constant-fold `round_add` sau synthesis.
+Numerically identical to `(acc + bias + round) >>> nb` (round-half-up, signed). Vì `nb`
+cố định mỗi layer, Quartus constant-fold `round_add`. Chi tiết cycle từng submodule:
+[cp_submodule_timing.md](cp_submodule_timing.md).
 
 ## Latency và Throughput Per Layer
 
@@ -120,8 +127,8 @@ Cycle   S1(mult) S2(add1) S3(add2) S4(tree) a_d5  ACC       S5b(af) S_bias  S6  
  N+10   ch2'×w   Σ01,23   Σ0123    tree_ch7  5     +=tree_ch5
  N+11   ch3'×w   ...               tree_ch0' 6     +=tree_ch6
  N+12   ch4'×w                     tree_ch1' 7=IC-1 acc_final_r←acc+tree_ch7  (out_valid)
- N+13                                                       biased←af_r+bias
- N+14                                                                shifted←(biased+round_add)>>>nb
+ N+13                                                       biased←af_r (passthrough; bias folded at S5)
+ N+14                                                                shifted←biased>>>nb (round folded at S5)
  N+15                                                                        clamped
  N+16                                                                                relu_v↑ ─┐
  ...     (sau đủ 5 relu_v cho window)                                                         │

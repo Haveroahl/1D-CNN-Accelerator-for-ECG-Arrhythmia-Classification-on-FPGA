@@ -39,11 +39,12 @@ GAP_FC_S   —        —    —      —      8'h00     —
 
 ```verilog
 assign shift_en    = (a == in_ch - 4'd1);
-assign sram_addr_en = (in_ch == 4'd1) ? 1'b1            // Conv1: always
-                                       : (a == in_ch - 4'd2);
 ```
 
-**sram_rd_addr** (trong cp_engine):
+Controller **chỉ** xuất `shift_en` và `t`. Không có port `sram_addr_en` — địa chỉ đọc
+được tính hoàn toàn trong `cp_engine`.
+
+**sram_rd_addr** (derived trong cp_engine từ `t`):
 ```verilog
 assign sram_rd_addr = (sram_rd_addr_in >= 12'd2) ? (sram_rd_addr_in - 12'd2) : 12'd0;
 ```
@@ -112,7 +113,7 @@ Bảng dưới hiển thị `a` tại cycle drive (cp_engine input) cùng cột 
 ### Conv1 — IN_CH=1
 
 ```
-Mỗi cycle: shift_en=1, sram_addr_en=1 (a luôn = 0 = in_ch-1)
+Mỗi cycle: shift_en=1 (a luôn = 0 = in_ch-1)
 a_d5 = 0 mỗi cycle → mỗi edge cp_block: RST acc + acc_final_v=1 (out_valid)
 pool_write: pulse mỗi 5 cycles (5 relu_v)
 ```
@@ -120,25 +121,25 @@ pool_write: pulse mỗi 5 cycles (5 relu_v)
 ### Conv2/3 — IN_CH=4
 
 ```
-Cycle (drive)  a  addr_en  shift_en  | edge cp_block (drive +5) a_d5  ACC
- 4k+0          0    -        -       |                            0    RST
- 4k+1          1    -        -       |                            1    ACC
- 4k+2          2    ↑(addr)  -       |                            2    ACC
- 4k+3          3    -        ↑       |                            3    OUT → out_valid → acc_final_v
+Cycle (drive)  a  shift_en  | edge cp_block (drive +5) a_d5  ACC
+ 4k+0          0     -      |                            0    RST
+ 4k+1          1     -      |                            1    ACC
+ 4k+2          2     -      |                            2    ACC
+ 4k+3          3     ↑      |                            3    OUT → out_valid → acc_final_v
 ```
 
 ### Conv4 — IN_CH=8 (chuẩn tham chiếu)
 
 ```
-Cycle (drive)  a  addr_en  shift_en  | edge cp_block (drive +5) a_d5  ACC
- 8k+0          0    -        -       |                            0    RST
- 8k+1          1    -        -       |                            1    ACC
- 8k+2          2    -        -       |                            2    ACC
- 8k+3          3    -        -       |                            3    ACC
- 8k+4          4    -        -       |                            4    ACC
- 8k+5          5    -        -       |                            5    ACC
- 8k+6          6    ↑(addr)  -       |                            6    ACC
- 8k+7          7    -        ↑       |                            7    OUT → out_valid → acc_final_v
+Cycle (drive)  a  shift_en  | edge cp_block (drive +5) a_d5  ACC
+ 8k+0          0     -      |                            0    RST
+ 8k+1          1     -      |                            1    ACC
+ 8k+2          2     -      |                            2    ACC
+ 8k+3          3     -      |                            3    ACC
+ 8k+4          4     -      |                            4    ACC
+ 8k+5          5     -      |                            5    ACC
+ 8k+6          6     -      |                            6    ACC
+ 8k+7          7     ↑      |                            7    OUT → out_valid → acc_final_v
 ```
 
 ## GAP_FC Sub-States

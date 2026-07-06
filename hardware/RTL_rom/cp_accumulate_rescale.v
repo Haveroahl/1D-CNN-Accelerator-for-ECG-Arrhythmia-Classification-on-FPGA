@@ -5,9 +5,12 @@
 //   S5    : accumulate tree_out over in_ch cycles (per a_in). bias and round_add
 //           (round-half-up) are FOLDED into the acc-init term (a_in==0) so the
 //           downstream stages carry no extra add on the critical path.
-//   S5b   : acc_final register — breaks the 2-cascaded-adder critical path.
-//   S_bias: pure register passthrough (bias already folded). Kept to preserve
-//           pipeline depth + valid-bit timing.
+//   S_bias: delay out_valid by 1 cycle, then capture acc directly (no adder —
+//           acc already holds the completed sum one cycle after out_valid,
+//           right before S5's a_in==0 branch overwrites it for the next
+//           window). Replaces the old two-stage S5b+S_bias split: same total
+//           pipeline depth (2 cycles from acc to biased), one fewer 32-bit
+//           adder, bit-exact and cycle-count identical (verified).
 //   S6    : pure arithmetic shift >>> nb (round-half-up, signed).
 //   S7    : clamp to [-127, 127].
 //   S8    : ReLU (Conv4 only).
@@ -59,34 +62,27 @@ module cp_accumulate_rescale (
         end
     end
 
-    // ── S5b: acc_final register (breaks 2-cascaded-adder critical path) ──────
-    // acc_final_r = acc + tree_sext for last ic; registered 1 cycle after out_valid.
-    reg signed [31:0] acc_final_r;
-    reg               acc_final_v;
-    always @(posedge clk) begin
-        if (rst || pool_rst) begin
-            acc_final_v <= 1'b0;
-            acc_final_r <= 32'sd0;
-        end else begin
-            acc_final_v <= out_valid;
-            if (out_valid)
-                acc_final_r <= (a_in == 0) ? (tree_sext + bias_in + round_add)
-                                           : (acc + tree_sext);
-        end
-    end
-
-    // ── S_bias: pure register move (bias folded into acc-init at S5/S5b) ─────
-    // Kept as a pipeline stage (not removed) to preserve depth + valid-bit timing.
+    // ── S_bias: delay-then-capture (S5b folded in, adder removed) ────────────
+    // Delay out_valid by 1 cycle, then capture acc directly (no recompute). At
+    // that cycle, acc already holds the completed sum committed by S5 on the
+    // previous edge — one cycle before S5's a_in==0 branch overwrites it for
+    // the next accumulation window. No delay at all would read acc one cycle
+    // too early (missing the final tap) — verified to break bit-exact from
+    // Conv2 onward (in_ch>1). This single stage replaces the old S5b+S_bias
+    // pair: identical 2-cycle depth from acc to biased, one 32-bit adder saved.
     reg signed [31:0] biased;
     reg               bias_valid;
+    reg               out_valid_d1;
     always @(posedge clk) begin
         if (rst || pool_rst) begin
-            bias_valid <= 1'b0;
-            biased     <= 32'sd0;
+            bias_valid   <= 1'b0;
+            biased       <= 32'sd0;
+            out_valid_d1 <= 1'b0;
         end else begin
-            bias_valid <= acc_final_v;
-            if (acc_final_v)
-                biased <= acc_final_r;   // bias already in acc_final_r
+            out_valid_d1 <= out_valid;
+            bias_valid   <= out_valid_d1;
+            if (out_valid_d1)
+                biased <= acc;
         end
     end
 

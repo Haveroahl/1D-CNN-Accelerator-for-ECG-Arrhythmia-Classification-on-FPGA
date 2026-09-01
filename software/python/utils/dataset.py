@@ -116,10 +116,11 @@ class ChapmanECGDataset(Dataset):
         print(f"[INFO] Total labeled entries: {len(all_entries)}")
 
         # Split 80/10/10
-        # Use legacy-compatible numpy random API (np.random.seed + permutation)
-        # so that train/val/test indices match the legacy codebase exactly.
-        np.random.seed(self.seed)
-        indices = np.random.permutation(len(all_entries))
+        # Use a local RandomState seeded with self.seed so the permutation is
+        # identical to the legacy np.random.seed + permutation path, but WITHOUT
+        # clobbering the global numpy RNG state.
+        rng     = np.random.RandomState(self.seed)
+        indices = rng.permutation(len(all_entries))
         n       = len(indices)
 
         if   self.split == 'train': indices = indices[:int(0.8 * n)]
@@ -162,8 +163,11 @@ class ChapmanECGDataset(Dataset):
                 self.heart_rates.append(hr if hr is not None else 0)
                 loaded += 1
 
-            except Exception:
+            except Exception as e:
                 missing += 1
+                if missing <= 10:  # cap log spam; surface format/read errors
+                    print(f"[WARN] Failed to read {fname}.csv: "
+                          f"{type(e).__name__}: {e}")
 
             if (count + 1) % 1000 == 0:
                 print(f"[INFO]   Processed {count+1}/{len(indices)} "

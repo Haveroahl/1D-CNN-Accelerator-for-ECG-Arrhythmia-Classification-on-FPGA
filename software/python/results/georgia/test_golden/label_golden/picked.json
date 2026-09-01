@@ -1,0 +1,22 @@
+{
+  "AFIB": {
+    "idx": 0,
+    "true": 0,
+    "pred": 0
+  },
+  "GSVT": {
+    "idx": 692,
+    "true": 1,
+    "pred": 1
+  },
+  "SB": {
+    "idx": 1885,
+    "true": 2,
+    "pred": 2
+  },
+  "SR": {
+    "idx": 3405,
+    "true": 3,
+    "pred": 3
+  }
+}

@@ -175,7 +175,10 @@ def run_subprocess(script, extra_args, label):
     print(f"{'='*60}")
     ret = subprocess.run(cmd, check=False)
     if ret.returncode != 0:
-        print(f"  [WARNING] {label} exited with code {ret.returncode}")
+        raise RuntimeError(
+            f"{label} failed (exit {ret.returncode}). Aborting ablation run so "
+            f"Table 4 is not built from incomplete results."
+        )
 
 
 def build_table4(results_dir, variants):

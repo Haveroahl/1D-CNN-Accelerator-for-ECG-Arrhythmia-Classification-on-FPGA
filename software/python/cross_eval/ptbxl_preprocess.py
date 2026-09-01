@@ -63,16 +63,21 @@ def load_waveform(filename_hr, ptbxl_dir):
     import wfdb
     path = os.path.join(ptbxl_dir, filename_hr)
     rec  = wfdb.rdrecord(path)
-    sig  = rec.p_signal[:, LEAD_IDX].astype(np.float32)
+    sig  = rec.p_signal[:, LEAD_IDX].astype(np.float64)
     return sig
 
 
 def preprocess_signal(sig):
-    """Downsample 500→250 Hz, Z-score normalize → float32 (2500,)."""
-    down = resample(sig, TARGET_LEN).astype(np.float32)
+    """Downsample 500→250 Hz, Z-score normalize → float32 (2500,).
+
+    Order matches Chapman (utils/dataset.py): resample on float64, z-score,
+    then cast to float32 last — so cross-check data goes through the exact
+    same numeric pipeline as the training data.
+    """
+    down = resample(sig, TARGET_LEN)          # float64 FFT resample
     mu   = np.mean(down)
     std  = np.std(down) + 1e-8
-    return (down - mu) / std
+    return ((down - mu) / std).astype(np.float32)
 
 
 def patient_split(df_labeled, seed=42):

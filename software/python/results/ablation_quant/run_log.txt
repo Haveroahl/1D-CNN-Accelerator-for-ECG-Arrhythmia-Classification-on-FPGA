@@ -1,0 +1,307 @@
+D:\Thesis101\.venv\Lib\site-packages\torch\utils\data\dataloader.py:1095: UserWarning: 'pin_memory' argument is set as true but no accelerator is found, then device pinned memory won't be used.
+  super().__init__(loader)
+D:\Thesis101\.venv\Lib\site-packages\torch\utils\data\dataloader.py:1095: UserWarning: 'pin_memory' argument is set as true but no accelerator is found, then device pinned memory won't be used.
+  super().__init__(loader)
+[INFO] Device: cpu
+[INFO] Rescale mode: round  (A3 general-scale round)
+[INFO] Pruned model (c1=4, c2=4, c3=8, c4=8)
+
+============================================================
+  Chapman ECG Database: ../../data/Chapman
+============================================================
+[INFO] Reading ../../data/Chapman\Diagnostics.xlsx ...
+[INFO] Total labeled entries: 10646
+[INFO]   Processed 1000/8516 (loaded=1000) ...
+[INFO]   Processed 2000/8516 (loaded=2000) ...
+[INFO]   Processed 3000/8516 (loaded=3000) ...
+[INFO]   Processed 4000/8516 (loaded=4000) ...
+[INFO]   Processed 5000/8516 (loaded=5000) ...
+[INFO]   Processed 6000/8516 (loaded=6000) ...
+[INFO]   Processed 7000/8516 (loaded=7000) ...
+[INFO]   Processed 8000/8516 (loaded=8000) ...
+[INFO] train: 8516 records (missing=0, too_short=0)
+[INFO]   Distribution: {'AFIB': 1781, 'GSVT': 1818, 'SB': 3149, 'SR': 1768}
+[INFO] Reading ../../data/Chapman\Diagnostics.xlsx ...
+[INFO] Total labeled entries: 10646
+[INFO]   Processed 1000/1065 (loaded=1000) ...
+[INFO] val: 1065 records (missing=0, too_short=0)
+[INFO]   Distribution: {'AFIB': 226, 'GSVT': 247, 'SB': 360, 'SR': 232}
+[INFO] Reading ../../data/Chapman\Diagnostics.xlsx ...
+[INFO] Total labeled entries: 10646
+[INFO]   Processed 1000/1065 (loaded=1000) ...
+[INFO] test: 1065 records (missing=0, too_short=0)
+[INFO]   Distribution: {'AFIB': 218, 'GSVT': 242, 'SB': 380, 'SR': 225}
+
+  Train:  8516 records | 66 batches
+  Val:    1065 records | 9 batches
+  Test:   1065 records | 9 batches
+============================================================
+
+
+============================================================
+  Phase 1: QAT Training (50 epochs, lr=0.0001)
+============================================================
+  Epoch   1/50  train_acc=0.9460  val_acc=0.9258  <- best
+  Epoch   5/50  train_acc=0.9440  val_acc=0.9296
+  Epoch  10/50  train_acc=0.9445  val_acc=0.9249
+  Epoch  15/50  train_acc=0.9444  val_acc=0.9258
+  Epoch  20/50  train_acc=0.9446  val_acc=0.9258
+  Epoch  25/50  train_acc=0.9450  val_acc=0.9305
+  Epoch  30/50  train_acc=0.9437  val_acc=0.9286
+  Epoch  35/50  train_acc=0.9455  val_acc=0.9277
+  Epoch  40/50  train_acc=0.9452  val_acc=0.9277
+  Epoch  45/50  train_acc=0.9454  val_acc=0.9296
+  Epoch  50/50  train_acc=0.9467  val_acc=0.9315
+
+  Best val_acc: 0.9324
+
+============================================================
+  Phase 2: General-Scale INT8 Conversion
+============================================================
+
+  input_scale = 0.219540  (abs_max/127)
+  Per-layer weight scales (float, not power-of-2):
+    conv1       s_w=0.008664
+    conv2       s_w=0.008185
+    conv3       s_w=0.008034
+    conv4       s_w=0.004319
+    fc          s_w=0.003490
+  Per-layer activation output scales:
+    conv1       s_out=0.285758
+    conv2       s_out=0.718450
+    conv3       s_out=0.360290
+    conv4       s_out=0.643350
+
+  DSP18 for rescale (estimate): +4 vs power-of-2 A2 (0 extra)
+
+  Saved: ./results/ablation_quant\a3_general_round\model_qat_general_int8.pth
+
+============================================================
+  Phase 3: Evaluation  (rescale_mode=round)
+============================================================
+
+  QAT fake-quantized accuracy : 0.9437 (94.37%)
+  INT8 simulated accuracy     : 0.9465 (94.65%)
+  Accuracy drop (fq→INT8)     : -0.28%
+
+  INT8 Per-class metrics:
+  Accuracy : 0.9465
+  F1-macro : 0.9398
+
+  Class       Precision     Recall         F1    Support
+  --------------------------------------------------
+  AFIB           0.8734     0.9174     0.8949        218
+  GSVT           0.9253     0.9215     0.9234        242
+  SB             0.9793     0.9947     0.9869        380
+  SR             0.9904     0.9200     0.9539        225
+
+  Confusion Matrix (rows=true, cols=pred):
+              AFIB    GSVT      SB      SR
+  AFIB         200      13       4       1
+  GSVT          18     223       0       1
+  SB             2       0     378       0
+  SR             9       5       4     207
+
+  Results saved: ./results/ablation_quant\a3_general_round\results.json
+
+============================================================
+  Table 4 row for this variant:
+  Variant          : A3 General-scale (round)
+  Acc (INT8 sim)   : 94.65%
+  F1-macro         : 0.9398
+  DSP extra (rescale): +4 DSP18 vs power-of-2
+============================================================
+D:\Thesis101\.venv\Lib\site-packages\torch\utils\data\dataloader.py:1095: UserWarning: 'pin_memory' argument is set as true but no accelerator is found, then device pinned memory won't be used.
+  super().__init__(loader)
+[INFO] Device: cpu
+[INFO] Variant: A4 power-of-2 floor (no round-half-up correction)
+[INFO] Pruned model (c1=4, c2=4, c3=8, c4=8)
+
+============================================================
+  Chapman ECG Database: ../../data/Chapman
+============================================================
+[INFO] Reading ../../data/Chapman\Diagnostics.xlsx ...
+[INFO] Total labeled entries: 10646
+[INFO]   Processed 1000/8516 (loaded=1000) ...
+[INFO]   Processed 2000/8516 (loaded=2000) ...
+[INFO]   Processed 3000/8516 (loaded=3000) ...
+[INFO]   Processed 4000/8516 (loaded=4000) ...
+[INFO]   Processed 5000/8516 (loaded=5000) ...
+[INFO]   Processed 6000/8516 (loaded=6000) ...
+[INFO]   Processed 7000/8516 (loaded=7000) ...
+[INFO]   Processed 8000/8516 (loaded=8000) ...
+[INFO] train: 8516 records (missing=0, too_short=0)
+[INFO]   Distribution: {'AFIB': 1781, 'GSVT': 1818, 'SB': 3149, 'SR': 1768}
+[INFO] Reading ../../data/Chapman\Diagnostics.xlsx ...
+[INFO] Total labeled entries: 10646
+[INFO]   Processed 1000/1065 (loaded=1000) ...
+[INFO] val: 1065 records (missing=0, too_short=0)
+[INFO]   Distribution: {'AFIB': 226, 'GSVT': 247, 'SB': 360, 'SR': 232}
+[INFO] Reading ../../data/Chapman\Diagnostics.xlsx ...
+[INFO] Total labeled entries: 10646
+[INFO]   Processed 1000/1065 (loaded=1000) ...
+[INFO] test: 1065 records (missing=0, too_short=0)
+[INFO]   Distribution: {'AFIB': 218, 'GSVT': 242, 'SB': 380, 'SR': 225}
+
+  Train:  8516 records | 66 batches
+  Val:    1065 records | 9 batches
+  Test:   1065 records | 9 batches
+============================================================
+
+
+============================================================
+  Phase 1: QAT Training  (50 epochs, lr=0.0001)
+  Note: QAT training identical to A2 — floor only affects INT8 sim
+============================================================
+  Epoch   1/50  train_acc=0.9418  val_acc=0.9296  <- best
+  Epoch   5/50  train_acc=0.9453  val_acc=0.9258
+  Epoch  10/50  train_acc=0.9450  val_acc=0.9296
+  Epoch  15/50  train_acc=0.9454  val_acc=0.9249
+  Epoch  20/50  train_acc=0.9452  val_acc=0.9249
+  Epoch  25/50  train_acc=0.9442  val_acc=0.9305
+  Epoch  30/50  train_acc=0.9451  val_acc=0.9315
+  Epoch  35/50  train_acc=0.9439  val_acc=0.9305
+  Epoch  40/50  train_acc=0.9440  val_acc=0.9324
+  Epoch  45/50  train_acc=0.9458  val_acc=0.9268
+  Epoch  50/50  train_acc=0.9455  val_acc=0.9277
+
+  Best val_acc: 0.9333
+
+============================================================
+  Phase 2: Power-of-2 INT8 Conversion (floor rescale)
+============================================================
+
+  input_shift_bits = 2
+    conv1       w_shift=6  nb=8
+    conv2       w_shift=6  nb=6
+    conv3       w_shift=6  nb=6
+    conv4       w_shift=7  nb=7
+    fc          w_shift=8  nb=N/A
+  Saved: ./results/ablation_quant\a4_p2_floor\model_qat_floor_int8.pth
+
+============================================================
+  Phase 3: Evaluation
+============================================================
+
+  QAT fake-quantized accuracy   : 0.9437 (94.37%)
+  A4 floor INT8 accuracy        : 0.9399 (93.99%)
+  Accuracy drop vs A2 (round)   : compare manually with A2 result
+  Accuracy drop (fq→floor INT8) : +0.38%
+
+  Per-class metrics (floor):
+  Accuracy : 0.9399
+  F1-macro : 0.9328
+
+  Class       Precision     Recall         F1    Support
+  --------------------------------------------------
+  AFIB           0.8374     0.9450     0.8879        218
+  GSVT           0.9383     0.8802     0.9083        242
+  SB             0.9817     0.9895     0.9856        380
+  SR             0.9856     0.9156     0.9493        225
+
+  Confusion Matrix (rows=true, cols=pred):
+              AFIB    GSVT      SB      SR
+  AFIB         206       9       2       1
+  GSVT          28     213       0       1
+  SB             3       0     376       1
+  SR             9       5       5     206
+
+  Results saved: ./results/ablation_quant\a4_p2_floor\results.json
+
+============================================================
+  Table 4 row for A4 (power-of-2 floor):
+  Acc (INT8 sim): 93.99%
+  F1-macro      : 0.9328
+  DSP extra     : 0 (same as A2, shift only)
+============================================================
+
+[Phase A'] Running A1 (float32 eval)...
+
+============================================================
+  Chapman ECG Database: ../../data/Chapman
+============================================================
+[INFO] Reading ../../data/Chapman\Diagnostics.xlsx ...
+[INFO] Total labeled entries: 10646
+[INFO]   Processed 1000/8516 (loaded=1000) ...
+[INFO]   Processed 2000/8516 (loaded=2000) ...
+[INFO]   Processed 3000/8516 (loaded=3000) ...
+[INFO]   Processed 4000/8516 (loaded=4000) ...
+[INFO]   Processed 5000/8516 (loaded=5000) ...
+[INFO]   Processed 6000/8516 (loaded=6000) ...
+[INFO]   Processed 7000/8516 (loaded=7000) ...
+[INFO]   Processed 8000/8516 (loaded=8000) ...
+[INFO] train: 8516 records (missing=0, too_short=0)
+[INFO]   Distribution: {'AFIB': 1781, 'GSVT': 1818, 'SB': 3149, 'SR': 1768}
+[INFO] Reading ../../data/Chapman\Diagnostics.xlsx ...
+[INFO] Total labeled entries: 10646
+[INFO]   Processed 1000/1065 (loaded=1000) ...
+[INFO] val: 1065 records (missing=0, too_short=0)
+[INFO]   Distribution: {'AFIB': 226, 'GSVT': 247, 'SB': 360, 'SR': 232}
+[INFO] Reading ../../data/Chapman\Diagnostics.xlsx ...
+[INFO] Total labeled entries: 10646
+[INFO]   Processed 1000/1065 (loaded=1000) ...
+[INFO] test: 1065 records (missing=0, too_short=0)
+[INFO]   Distribution: {'AFIB': 218, 'GSVT': 242, 'SB': 380, 'SR': 225}
+
+  Train:  8516 records | 66 batches
+  Val:    1065 records | 9 batches
+  Test:   1065 records | 9 batches
+============================================================
+
+
+  [A1] Float32 accuracy: 0.9465 (94.65%)
+  Accuracy : 0.9465
+  F1-macro : 0.9402
+
+  Class       Precision     Recall         F1    Support
+  --------------------------------------------------
+  AFIB           0.8707     0.9266     0.8978        218
+  GSVT           0.9364     0.9132     0.9247        242
+  SB             0.9742     0.9947     0.9844        380
+  SR             0.9904     0.9200     0.9539        225
+
+  Confusion Matrix (rows=true, cols=pred):
+              AFIB    GSVT      SB      SR
+  AFIB         202      10       5       1
+  GSVT          20     221       0       1
+  SB             2       0     378       0
+  SR             8       5       5     207
+
+[Phase A'] Skipping A2 (--skip_a2)
+
+============================================================
+  Running A3 general-scale INT8 (round)
+  CMD: D:\Thesis101\.venv\Scripts\python.exe D:\Thesis101\software\python\quantization\qat_int8_general.py --checkpoint ./results/best_model_pruned.pth --data_dir ../../data/Chapman --epochs 50 --batch_size 128 --output_dir ./results/ablation_quant\a3_general_round --rescale-mode round
+============================================================
+
+============================================================
+  Running A4 power-of-2 floor truncation
+  CMD: D:\Thesis101\.venv\Scripts\python.exe D:\Thesis101\software\python\quantization\qat_int8_floor.py --checkpoint ./results/best_model_pruned.pth --data_dir ../../data/Chapman --epochs 50 --batch_size 128 --output_dir ./results/ablation_quant\a4_p2_floor
+============================================================
+
+======================================================================
+  TABLE 4 — Quantization Ablation (Phase A')
+======================================================================
+Variant                            Acc      F1   ΔAcc(A1)  DSP+extra
+----------------------------------------------------------------------
+  A1 Float32 baseline           94.65%  0.9402     +0.00%  +N/A DSP18
+  A2 P2-QAT round-half-up (ours)  94.55%  0.9387     +0.10%  +0 DSP18
+  A3 General-scale (round)      94.65%  0.9398     +0.00%  +4 DSP18
+  A4 P2-QAT floor (no round)    93.99%  0.9328     +0.66%  +0 DSP18
+======================================================================
+  DSP+extra: additional DSP18 for rescale vs A2 baseline
+  ΔAcc(A1): accuracy drop vs float32 upper bound
+Traceback (most recent call last):
+  File "D:\Thesis101\software\python\run_ablation_quant.py", line 337, in <module>
+    main()
+    ~~~~^^
+  File "D:\Thesis101\software\python\run_ablation_quant.py", line 333, in main
+    run(args)
+    ~~~^^^^^^
+  File "D:\Thesis101\software\python\run_ablation_quant.py", line 306, in run
+    f.write(f"{'Variant':<30} {'Acc%':>7} {'F1':>7} {'ΔAcc(A1)':>10} {'DSP+extra':>10}\n")
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u0394' in position 49: character maps to <undefined>

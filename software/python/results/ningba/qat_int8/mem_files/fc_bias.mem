@@ -1,0 +1,6 @@
+// fc_bias  scaled by 2^7  (add to acc_int32)
+// FC: no >>nb; bias at logit scale 2^7 = 2^w_shift[fc]
+FFFFFFF5
+0000002E
+FFFFFFF5
+FFFFFFD1

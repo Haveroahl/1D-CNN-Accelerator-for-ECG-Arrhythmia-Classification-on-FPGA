@@ -1,0 +1,3 @@
+// Input quantization (power-of-2)
+// input_int8 = clamp(round(x * 2^input_shift), -127, 127)
+// input_shift_bits = 2

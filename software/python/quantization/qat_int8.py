@@ -525,9 +525,15 @@ def run(args):
         qat_model = None  # Will be built after data loading
 
     # ---- Data ----
-    train_loader, val_loader, test_loader = get_dataloaders(
-        args.data_dir, batch_size=args.batch_size, num_workers=2
-    )
+    if getattr(args, 'npz', None):
+        from utils.npz_dataset import get_npz_dataloaders
+        train_loader, val_loader, test_loader = get_npz_dataloaders(
+            args.npz, batch_size=args.batch_size, num_workers=2
+        )
+    else:
+        train_loader, val_loader, test_loader = get_dataloaders(
+            args.data_dir, batch_size=args.batch_size, num_workers=2
+        )
 
     # ---- Phase 1: QAT training ----
     qat_path = os.path.join(args.output_dir, 'model_qat_float.pth')
@@ -692,6 +698,8 @@ def main():
                    help='Float32 checkpoint to start QAT from')
     p.add_argument('--output_dir', type=str, default='./results/qat_int8')
     p.add_argument('--data_dir',   type=str, default='../../data/Chapman')
+    p.add_argument('--npz',        type=str, default=None,
+                   help='Pre-split .npz path; overrides --data_dir when set')
     p.add_argument('--epochs',     type=int, default=50)
     p.add_argument('--lr',         type=float, default=1e-4)
     p.add_argument('--batch_size', type=int, default=128)

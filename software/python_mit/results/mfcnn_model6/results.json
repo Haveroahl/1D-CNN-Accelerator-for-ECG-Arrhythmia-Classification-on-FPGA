@@ -1,0 +1,29 @@
+{
+  "params_trainable": 916,
+  "params_total": 1332,
+  "best_epoch": 40,
+  "accuracy": 0.92819635851524,
+  "f1_macro": 0.7466934000464023,
+  "confusion_matrix": [
+    [
+      42062,
+      1416,
+      781
+    ],
+    [
+      251,
+      1186,
+      400
+    ],
+    [
+      625,
+      96,
+      2888
+    ]
+  ],
+  "frozen_conv": true,
+  "paper_target": {
+    "accuracy": 0.9818,
+    "f1_macro": 0.9217
+  }
+}

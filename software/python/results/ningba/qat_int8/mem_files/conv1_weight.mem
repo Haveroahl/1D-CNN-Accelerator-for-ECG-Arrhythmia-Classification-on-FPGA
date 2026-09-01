@@ -1,0 +1,22 @@
+// conv1_weight  shape=[4, 1, 5]
+// INT8  shift_bits=6  (scale=2^6)
+4B
+4A
+28
+16
+F1
+1A
+19
+3C
+44
+1A
+41
+22
+3E
+39
+48
+1A
+29
+0D
+07
+5E

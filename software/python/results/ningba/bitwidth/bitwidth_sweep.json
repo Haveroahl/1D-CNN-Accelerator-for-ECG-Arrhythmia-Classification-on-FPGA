@@ -1,0 +1,102 @@
+{
+  "n_test": 4973,
+  "rows": [
+    {
+      "name": "float32",
+      "bits": 32,
+      "acc": 0.9503317916750452,
+      "f1_macro": 0.9446067293085397,
+      "hw": {
+        "bits": 32,
+        "multiplier": "float32",
+        "acc_width": 32,
+        "weight_rom_bits": 20480,
+        "weight_rom_ratio": 4.0
+      }
+    },
+    {
+      "name": "INT4",
+      "bits": 4,
+      "acc": 0.3126885179971848,
+      "f1_macro": 0.26534969953977117,
+      "qmax": 7,
+      "input_shift": 0,
+      "w_shift": {
+        "conv1": 2,
+        "conv2": 2,
+        "conv3": 2,
+        "conv4": 3,
+        "fc": 3
+      },
+      "nb": {
+        "conv1": 2,
+        "conv2": 2,
+        "conv3": 2,
+        "conv4": 3
+      },
+      "hw": {
+        "bits": 4,
+        "multiplier": "4x4",
+        "acc_width": 14,
+        "weight_rom_bits": 2560,
+        "weight_rom_ratio": 0.5
+      }
+    },
+    {
+      "name": "INT8",
+      "bits": 8,
+      "acc": 0.9426905288558214,
+      "f1_macro": 0.9355830746686573,
+      "qmax": 127,
+      "input_shift": 2,
+      "w_shift": {
+        "conv1": 6,
+        "conv2": 7,
+        "conv3": 6,
+        "conv4": 7,
+        "fc": 7
+      },
+      "nb": {
+        "conv1": 8,
+        "conv2": 7,
+        "conv3": 6,
+        "conv4": 7
+      },
+      "hw": {
+        "bits": 8,
+        "multiplier": "8x8",
+        "acc_width": 22,
+        "weight_rom_bits": 5120,
+        "weight_rom_ratio": 1.0
+      }
+    },
+    {
+      "name": "INT16",
+      "bits": 16,
+      "acc": 0.9465111602654334,
+      "f1_macro": 0.9405781841205073,
+      "qmax": 32767,
+      "input_shift": 10,
+      "w_shift": {
+        "conv1": 14,
+        "conv2": 15,
+        "conv3": 14,
+        "conv4": 15,
+        "fc": 15
+      },
+      "nb": {
+        "conv1": 24,
+        "conv2": 15,
+        "conv3": 14,
+        "conv4": 15
+      },
+      "hw": {
+        "bits": 16,
+        "multiplier": "16x16",
+        "acc_width": 38,
+        "weight_rom_bits": 10240,
+        "weight_rom_ratio": 2.0
+      }
+    }
+  ]
+}

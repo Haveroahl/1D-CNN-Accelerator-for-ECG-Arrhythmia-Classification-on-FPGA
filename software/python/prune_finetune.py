@@ -285,8 +285,8 @@ def _validate(model, loader, criterion, device):
 def finetune(model, train_loader, val_loader, device):
     """
     Fine-tune the pruned model with a 2-phase LR schedule:
-      Phase 1: 40 epochs @ lr=1e-3
-      Phase 2: 10 epochs @ lr=1e-4
+      Phase 1: 30 epochs @ lr=1e-3
+      Phase 2: 20 epochs @ lr=1e-4
     Best val_loss checkpoint is restored at the end.
     """
     criterion     = nn.CrossEntropyLoss()
@@ -353,10 +353,16 @@ def prune_and_finetune(args):
 
     # ── 1. Data ──────────────────────────────────────────────
     print("\n[1/5] Loading dataset ...")
-    train_loader, val_loader, test_loader = get_dataloaders(
-        args.data_dir, batch_size=args.batch_size,
-        num_workers=args.num_workers,
-    )
+    if args.npz:
+        from utils.npz_dataset import get_npz_dataloaders
+        train_loader, val_loader, test_loader = get_npz_dataloaders(
+            args.npz, batch_size=args.batch_size, num_workers=args.num_workers,
+        )
+    else:
+        train_loader, val_loader, test_loader = get_dataloaders(
+            args.data_dir, batch_size=args.batch_size,
+            num_workers=args.num_workers,
+        )
 
     # ── 2. Load full trained v3 model ───────────────────────
     print(f"\n[2/5] Loading checkpoint: {args.checkpoint}")
@@ -492,6 +498,8 @@ def parse_args():
                    default='./results/best_model.pth')
     p.add_argument('--data_dir',    type=str,
                    default='../../data/Chapman')
+    p.add_argument('--npz',         type=str, default=None,
+                   help='Pre-split .npz path; overrides --data_dir when set')
     p.add_argument('--output_dir',  type=str,   default='./results')
     p.add_argument('--batch_size',  type=int,   default=128)
     p.add_argument('--num_workers', type=int,   default=2)

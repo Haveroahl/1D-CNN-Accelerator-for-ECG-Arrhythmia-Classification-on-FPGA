@@ -87,22 +87,34 @@ def make_loaders(X, y, train_idx, test_idx, batch_size):
 # ============================================================
 
 def qat_finetune(qat_model, train_loader, device, epochs, lr):
+    # Carve a held-out validation split (10%) from the fold's train data so the
+    # best-state selection uses VAL accuracy (matching the single-run pipeline),
+    # not train accuracy. Keeps fold variance estimates consistent. Never touches
+    # the test fold (no leakage).
+    full_ds   = train_loader.dataset
+    bs        = train_loader.batch_size
+    n_val     = max(1, int(0.1 * len(full_ds)))
+    n_tr      = len(full_ds) - n_val
+    g         = torch.Generator().manual_seed(42)
+    tr_ds, va_ds = torch.utils.data.random_split(full_ds, [n_tr, n_val], generator=g)
+    tr_loader = DataLoader(tr_ds, batch_size=bs, shuffle=True,  drop_last=True)
+    va_loader = DataLoader(va_ds, batch_size=bs, shuffle=False, drop_last=False)
+
     optimizer = optim.Adam(qat_model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
     best_state, best_acc = None, -1.0
     for ep in range(epochs):
         qat_model.train()
-        for batch in train_loader:
+        for batch in tr_loader:
             x = batch[0].to(device); yb = batch[1].to(device)
             optimizer.zero_grad()
             loss = criterion(qat_model(x, quantize=True), yb)
             loss.backward()
             optimizer.step()
-        # quick train-acc proxy for best-state selection (no separate val in fold)
         qat_model.eval()
         correct = total = 0
         with torch.no_grad():
-            for batch in train_loader:
+            for batch in va_loader:
                 x = batch[0].to(device); yb = batch[1].to(device)
                 correct += (qat_model(x, quantize=True).argmax(1) == yb).sum().item()
                 total += yb.numel()

@@ -1,0 +1,76 @@
+{
+ "per_class": {
+  "AFIB": {
+   "n": 1125,
+   "hr_med": 100.0,
+   "rmssd_med": 188.9,
+   "pct_hr_gt100": 49.4
+  },
+  "GSVT": {
+   "n": 867,
+   "hr_med": 110.7,
+   "rmssd_med": 8.5,
+   "pct_hr_gt100": 97.3
+  },
+  "SB": {
+   "n": 1789,
+   "hr_med": 59.1,
+   "rmssd_med": 339.4,
+   "pct_hr_gt100": 17.9
+  },
+  "SR": {
+   "n": 1183,
+   "hr_med": 76.5,
+   "rmssd_med": 43.1,
+   "pct_hr_gt100": 7.4
+  }
+ },
+ "afib_ok": {
+  "n": 1019,
+  "hr_med": 98.0,
+  "hr_p25": 82.2,
+  "hr_p75": 127.1,
+  "rmssd_med": 189.8,
+  "pct_hr_gt100": 47.4
+ },
+ "afib_to_gsvt": {
+  "n": 66,
+  "hr_med": 128.2,
+  "hr_p25": 115.1,
+  "hr_p75": 140.0,
+  "rmssd_med": 127.0,
+  "pct_hr_gt100": 95.5
+ },
+ "gsvt_ok": {
+  "n": 820,
+  "hr_med": 111.1,
+  "hr_p25": 104.9,
+  "hr_p75": 123.0,
+  "rmssd_med": 8.0,
+  "pct_hr_gt100": 98.7
+ },
+ "gsvt_to_afib": {
+  "n": 38,
+  "hr_med": 107.9,
+  "hr_p25": 97.5,
+  "hr_p75": 124.1,
+  "rmssd_med": 111.2,
+  "pct_hr_gt100": 73.7
+ },
+ "sr_ok": {
+  "n": 1085,
+  "hr_med": 75.9,
+  "hr_p25": 68.5,
+  "hr_p75": 84.7,
+  "rmssd_med": 42.5,
+  "pct_hr_gt100": 4.4
+ },
+ "sr_to_gsvt": {
+  "n": 55,
+  "hr_med": 101.7,
+  "hr_p25": 97.2,
+  "hr_p75": 119.0,
+  "rmssd_med": 35.5,
+  "pct_hr_gt100": 58.2
+ }
+}

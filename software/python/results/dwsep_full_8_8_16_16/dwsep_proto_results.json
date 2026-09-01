@@ -1,0 +1,46 @@
+{
+  "variant": "V-B (ReLU only after Conv4)",
+  "params_trainable": 876,
+  "conv_int8_weights": 648,
+  "conv_weights_baseline": 580,
+  "macs": 175520,
+  "float": {
+    "acc": 0.9352112676056338,
+    "f1": 0.9272310086487864
+  },
+  "bn_folded": {
+    "acc": 0.9352112676056338,
+    "f1": 0.9272310086487864,
+    "fold_drift": 0.0
+  },
+  "int8_p2": {
+    "acc": 0.8647887323943662,
+    "f1": 0.8545184331026807
+  },
+  "shifts": {
+    "input": 2,
+    "w_shift": {
+      "conv1": 8,
+      "dw2": 5,
+      "pw2": 7,
+      "dw3": 6,
+      "pw3": 7,
+      "dw4": 4,
+      "pw4": 6,
+      "fc": 7
+    },
+    "nb": {
+      "conv1": 7,
+      "dw2": 5,
+      "pw2": 7,
+      "dw3": 6,
+      "pw3": 7,
+      "dw4": 5,
+      "pw4": 7
+    }
+  },
+  "baseline_int8": {
+    "acc": 0.9465,
+    "f1": 0.9396
+  }
+}

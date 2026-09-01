@@ -1,0 +1,21 @@
+{
+  "sample_idx": 0,
+  "true_class": 0,
+  "predicted_class": 0,
+  "input_shift_bits": 2,
+  "nb": {
+    "conv1": 8,
+    "conv2": 7,
+    "conv3": 6,
+    "conv4": 7
+  },
+  "stage_files": {
+    "input_int8": "input_int8.mem",
+    "after_pool1": "after_pool1.mem",
+    "after_pool2": "after_pool2.mem",
+    "after_pool3": "after_pool3.mem",
+    "after_pool4": "after_pool4.mem",
+    "after_gap": "after_gap.mem",
+    "logits_fc": "logits_fc.mem"
+  }
+}

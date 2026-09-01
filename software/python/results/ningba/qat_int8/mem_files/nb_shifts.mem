@@ -1,0 +1,8 @@
+// Per-layer activation right-shift bits
+// Hardware: acc_int32 >>> nb  (arithmetic right shift)
+// Layer order: conv1 -> conv2 -> conv3 -> conv4 -> fc
+08  // conv1
+07  // conv2
+06  // conv3
+07  // conv4
+00  // fc

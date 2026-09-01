@@ -57,6 +57,11 @@ class ECG_CNN(nn.Module):
             if 'fc' not in name:
                 param.requires_grad = False
 
+    def freeze_fc(self):
+        for name, param in self.named_parameters():
+            if 'fc' in name:
+                param.requires_grad = False
+
     def unfreeze_all(self):
         for param in self.parameters():
             param.requires_grad = True
@@ -187,12 +192,58 @@ def chapman_test_loader(data_dir, batch_size=128):
     return DataLoader(Wrapper(ds), batch_size=batch_size, shuffle=False, num_workers=0)
 
 
+def byclass_loader(root, batch_size=128):
+    """Load ALL .npy records from a <root>/<CLASS>/*.npy tree into one loader.
+
+    Label = folder index in CLASS_NAMES. Used for zero-shot eval over the full
+    dataset (no train split → no leakage). Returns (loader, n).
+    """
+    import glob
+    X, y = [], []
+    for label, cname in enumerate(CLASS_NAMES):
+        for f in sorted(glob.glob(os.path.join(root, cname, '*.npy'))):
+            X.append(np.load(f))
+            y.append(label)
+    X = np.asarray(X, dtype=np.float32)
+    y = np.asarray(y, dtype=np.int64)
+    loader = DataLoader(
+        TensorDataset(torch.from_numpy(X), torch.from_numpy(y)),
+        batch_size=batch_size, shuffle=False, num_workers=0)
+    return loader, len(y)
+
+
+def run_byclass_zeroshot(args, device):
+    """Zero-shot only (C2 INT8 + C6 float32) over the full by-class tree."""
+    print(f"[INFO] by-class zero-shot from: {args.ptbxl_byclass}")
+    loader, n = byclass_loader(args.ptbxl_byclass, args.batch_size)
+    print(f"[INFO] loaded {n} records (all splits combined)")
+
+    results = {}
+    print("\n[C2] Chapman -> PTB-XL zero-shot (INT8 QAT, by-class)")
+    m = evaluate(load_qat_checkpoint(args.ckpt, device), loader, device)
+    results['C2_zeroshot'] = m
+    print(f"     acc={m['acc']:.4f}  f1={m['f1_macro']:.4f}")
+
+    print("\n[C6] Float32 zero-shot (by-class)")
+    m = evaluate(load_qat_checkpoint(args.ckpt, device), loader, device)
+    results['C6_float_zeroshot'] = m
+    print(f"     acc={m['acc']:.4f}  f1={m['f1_macro']:.4f}")
+
+    out_path = os.path.join(args.output, 'ptbxl_cross_eval_byclass.json')
+    with open(out_path, 'w') as f:
+        json.dump(results, f, indent=2)
+    print(f"\n[INFO] Results saved: {out_path}")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--ckpt',         default=r'software/python/results/qat_int8/model_qat_int8.pth')
     p.add_argument('--ptbxl',        default=r'data/ptbxl_processed/ptbxl_dataset.npz')
+    p.add_argument('--ptbxl_byclass', default=None,
+                   help='If set, run zero-shot only (C2+C6) over <dir>/<CLASS>/*.npy '
+                        '(all records, no train split). Writes ptbxl_cross_eval_byclass.json.')
     p.add_argument('--chapman_dir',  default=r'data/Chapman')
     p.add_argument('--output',       default=r'software/python/results/cross_eval')
     p.add_argument('--finetune_epochs', type=int, default=20)
@@ -205,6 +256,10 @@ def main():
     os.makedirs(args.output, exist_ok=True)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"[INFO] Device: {device}")
+
+    if args.ptbxl_byclass:
+        run_byclass_zeroshot(args, device)
+        return
 
     ptbxl_train, ptbxl_val, ptbxl_test = npz_loaders(
         args.ptbxl, args.batch_size,
@@ -264,6 +319,18 @@ def main():
     m = evaluate(model_c5, ptbxl_test, device)
     results['C5_from_scratch'] = m
     print(f"     acc={m['acc']:.4f}  f1={m['f1_macro']:.4f}")
+
+    # ── C7: Freeze FC, retrain conv ──────────────────────────────────────
+    print("\n[C7] Freeze FC, retrain conv layers on PTB-XL")
+    model_c7 = load_qat_checkpoint(args.ckpt, device)
+    model_c7.freeze_fc()
+    model_c7 = finetune(model_c7, ptbxl_train, ptbxl_val, device,
+                        epochs=args.finetune_epochs, lr=1e-3, label='freeze_fc')
+    m = evaluate(model_c7, ptbxl_test, device)
+    results['C7_freeze_fc_retrain_conv'] = m
+    print(f"     acc={m['acc']:.4f}  f1={m['f1_macro']:.4f}")
+    torch.save(model_c7.state_dict(),
+               os.path.join(args.output, 'ptbxl_freeze_fc.pth'))
 
     # ── C6: Float32 zero-shot (decompose quant vs distribution drop) ─────
     print("\n[C6] Float32 zero-shot (no quantization)")

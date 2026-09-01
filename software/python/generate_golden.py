@@ -151,7 +151,11 @@ def run(args):
     w_shift     = ckpt['w_shift']
     input_shift = ckpt['input_shift_bits']
 
-    _, _, test_loader = get_dataloaders(args.data_dir, batch_size=256, num_workers=0)
+    if getattr(args, 'npz', None):
+        from utils.npz_dataset import get_npz_dataloaders
+        _, _, test_loader = get_npz_dataloaders(args.npz, batch_size=256, num_workers=0)
+    else:
+        _, _, test_loader = get_dataloaders(args.data_dir, batch_size=256, num_workers=0)
     all_x, all_y = [], []
     for batch in test_loader:
         all_x.append(batch[0]); all_y.append(batch[1])
@@ -211,6 +215,8 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument('--checkpoint',  required=True)
     p.add_argument('--data_dir',    default='../../data/Chapman')
+    p.add_argument('--npz',         default=None,
+                   help='Pre-split .npz path; overrides --data_dir when set')
     p.add_argument('--output_dir',  default='./results/golden')
     p.add_argument('--sample_idx',  type=int, default=0)
     return p.parse_args()

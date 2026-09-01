@@ -1,0 +1,17 @@
+{
+  "int8_acc": 0.9279279279279279,
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 7,
+    "conv4": 7
+  },
+  "w_shift": {
+    "conv1": 6,
+    "conv2": 6,
+    "conv3": 7,
+    "conv4": 7,
+    "fc": 8
+  },
+  "input_shift_bits": 2
+}

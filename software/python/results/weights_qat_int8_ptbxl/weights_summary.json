@@ -1,0 +1,152 @@
+{
+  "checkpoint": "results/qat_int8_ptbxl/model_qat_int8.pth",
+  "checkpoint_epoch": "?",
+  "quantization_scheme": "QAT-INT8",
+  "bit_width": 8,
+  "input_shift_bits": 2,
+  "w_shifts": {
+    "conv1": 6,
+    "conv2": 6,
+    "conv3": 7,
+    "conv4": 7,
+    "fc": 8
+  },
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 7,
+    "conv4": 7
+  },
+  "total_params": 640,
+  "layers": [
+    {
+      "param": "conv1_weight",
+      "shape": [
+        4,
+        1,
+        5
+      ],
+      "n_values": 20,
+      "shift_bits": 6,
+      "int8_range": [
+        -9,
+        64
+      ]
+    },
+    {
+      "param": "conv1_bias",
+      "shape": [
+        4
+      ],
+      "n_values": 4,
+      "bias_shift": 8,
+      "int32_range": [
+        -88,
+        158
+      ]
+    },
+    {
+      "param": "conv2_weight",
+      "shape": [
+        4,
+        4,
+        5
+      ],
+      "n_values": 80,
+      "shift_bits": 6,
+      "int8_range": [
+        -64,
+        36
+      ]
+    },
+    {
+      "param": "conv2_bias",
+      "shape": [
+        4
+      ],
+      "n_values": 4,
+      "bias_shift": 6,
+      "int32_range": [
+        -28,
+        8
+      ]
+    },
+    {
+      "param": "conv3_weight",
+      "shape": [
+        8,
+        4,
+        5
+      ],
+      "n_values": 160,
+      "shift_bits": 7,
+      "int8_range": [
+        -118,
+        44
+      ]
+    },
+    {
+      "param": "conv3_bias",
+      "shape": [
+        8
+      ],
+      "n_values": 8,
+      "bias_shift": 7,
+      "int32_range": [
+        -72,
+        18
+      ]
+    },
+    {
+      "param": "conv4_weight",
+      "shape": [
+        8,
+        8,
+        5
+      ],
+      "n_values": 320,
+      "shift_bits": 7,
+      "int8_range": [
+        -44,
+        67
+      ]
+    },
+    {
+      "param": "conv4_bias",
+      "shape": [
+        8
+      ],
+      "n_values": 8,
+      "bias_shift": 7,
+      "int32_range": [
+        -1,
+        36
+      ]
+    },
+    {
+      "param": "fc_weight",
+      "shape": [
+        4,
+        8
+      ],
+      "n_values": 32,
+      "shift_bits": 8,
+      "int8_range": [
+        -117,
+        99
+      ]
+    },
+    {
+      "param": "fc_bias",
+      "shape": [
+        4
+      ],
+      "n_values": 4,
+      "bias_shift": 8,
+      "int32_range": [
+        -32,
+        -6
+      ]
+    }
+  ]
+}

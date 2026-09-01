@@ -1,0 +1,89 @@
+{
+  "n_samples": 1000,
+  "weights": {
+    "conv1": {
+      "sqnr_db": 44.491708392547054,
+      "max_abs_int8": 94.0,
+      "w_shift": 6,
+      "n_weights": 20
+    },
+    "conv2": {
+      "sqnr_db": 43.769514163845535,
+      "max_abs_int8": 113.0,
+      "w_shift": 7,
+      "n_weights": 80
+    },
+    "conv3": {
+      "sqnr_db": 35.55551666453756,
+      "max_abs_int8": 99.0,
+      "w_shift": 6,
+      "n_weights": 160
+    },
+    "conv4": {
+      "sqnr_db": 38.78022484427171,
+      "max_abs_int8": 98.0,
+      "w_shift": 7,
+      "n_weights": 320
+    },
+    "fc": {
+      "sqnr_db": 41.1612319247105,
+      "max_abs_int8": 65.0,
+      "w_shift": 7,
+      "n_weights": 32
+    }
+  },
+  "activations": {
+    "pool1": {
+      "sqnr_db": 21.387012795897927,
+      "nrmse": 0.0852411612868309,
+      "cos_sim": 0.9964714646339417,
+      "sat_rate": 0.0,
+      "max_abs_int8": 49.0,
+      "scale_exp": 0,
+      "nb": 8
+    },
+    "pool2": {
+      "sqnr_db": 25.732067141125373,
+      "nrmse": 0.051688823848962784,
+      "cos_sim": 0.9986859560012817,
+      "sat_rate": 0.0,
+      "max_abs_int8": 109.0,
+      "scale_exp": 0,
+      "nb": 7
+    },
+    "pool3": {
+      "sqnr_db": 19.87021538026212,
+      "nrmse": 0.10150542110204697,
+      "cos_sim": 0.9948357939720154,
+      "sat_rate": 0.0,
+      "max_abs_int8": 48.0,
+      "scale_exp": 0,
+      "nb": 6
+    },
+    "pool4": {
+      "sqnr_db": 22.439921105123858,
+      "nrmse": 0.07550990581512451,
+      "cos_sim": 0.9971450567245483,
+      "sat_rate": 0.0,
+      "max_abs_int8": 62.0,
+      "scale_exp": 0,
+      "nb": 7
+    },
+    "gap": {
+      "sqnr_db": 24.494519599196344,
+      "nrmse": 0.05960381031036377,
+      "cos_sim": 0.99846351146698,
+      "sat_rate": 0.0,
+      "max_abs_int8": 47.0,
+      "scale_exp": 0
+    },
+    "logits": {
+      "sqnr_db": 19.721931763702752,
+      "nrmse": 0.10325318574905396,
+      "cos_sim": 0.9947119355201721,
+      "sat_rate": 0.8827499747276306,
+      "max_abs_int8": 2292.0,
+      "scale_exp": 7
+    }
+  }
+}

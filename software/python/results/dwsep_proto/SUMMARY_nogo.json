@@ -1,0 +1,61 @@
+{
+  "verdict": "NO-GO",
+  "baseline": {
+    "int8_acc": 0.9465,
+    "int8_f1": 0.9396,
+    "conv_weights": 580,
+    "macs": 112400,
+    "dsp_rescale": 0
+  },
+  "note": "DW-sep V-B: power-of-2 INT8 drops 3.6-9.5pp (baseline 0%); reaching float~94 needs channels that push weight/MAC to 1.5-2x baseline. DW-sep does not pay off on this tiny 4-layer CNN; only general-scale closes INT8 gap but costs ~7-8 DSP (breaks C1 0-DSP). Confirms baseline (standard conv + power-of-2).",
+  "configs": {
+    "4,4,8,8 (30ep)": {
+      "float": {
+        "acc": 0.8948356807511737,
+        "f1": 0.8812857232566389
+      },
+      "int8_p2": {
+        "acc": 0.3183098591549296,
+        "f1": 0.27559490435562317
+      },
+      "conv_weights": 212,
+      "macs": 75280
+    },
+    "4,8,16,16 (30ep)": {
+      "float": {
+        "acc": 0.9014084507042254,
+        "f1": 0.8891413317565211
+      },
+      "int8_p2": {
+        "acc": 0.895774647887324,
+        "f1": 0.8819794304296354
+      },
+      "conv_weights": 576,
+      "macs": 99520
+    },
+    "8,8,16,16 (100ep)": {
+      "float": {
+        "acc": 0.9352112676056338,
+        "f1": 0.9272310086487864
+      },
+      "int8_p2": {
+        "acc": 0.8647887323943662,
+        "f1": 0.8545184331026807
+      },
+      "conv_weights": 648,
+      "macs": 175520
+    },
+    "8,16,16,16 (100ep)": {
+      "float": {
+        "acc": 0.9427230046948357,
+        "f1": 0.9354897456643526
+      },
+      "int8_p2": {
+        "acc": 0.9070422535211268,
+        "f1": 0.895193848266345
+      },
+      "conv_weights": 880,
+      "macs": 224320
+    }
+  }
+}

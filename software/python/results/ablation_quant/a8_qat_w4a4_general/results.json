@@ -1,0 +1,29 @@
+{
+  "variant": "qat_w4a4_general",
+  "w_bits": 4,
+  "a_bits": 4,
+  "qmax": 7,
+  "scale_mode": "general",
+  "int_acc": 0.755868544600939,
+  "fq_val_acc": 0.8037558685446009,
+  "fq_int_gap_pp": 4.788732394366191,
+  "f1_macro": 0.7044888709260861,
+  "per_class_f1": {
+    "AFIB": 0.42424242424242425,
+    "GSVT": 0.7414187643020596,
+    "SB": 0.9501312335958004,
+    "SR": 0.7021630615640599
+  },
+  "epochs": 50,
+  "lr": 0.0001,
+  "w_scale": {
+    "conv1": 0.1738627403974533,
+    "conv2": 0.14734221994876862,
+    "conv3": 0.13781720399856567,
+    "conv4": 0.06688053160905838,
+    "fc": 0.044033508747816086
+  },
+  "input_scale": 3.2075936453683034,
+  "dsp_extra_rescale": 4,
+  "note": "QAT full INT4 (W4A4), general scale. weights+acts clamped [-7,7], bias INT32. Software-only ablation for bit-vs-accuracy gradient in Table 4; no INT4 RTL built. p2 = shift-only (0 DSP rescale, hardware analogue of A2); general = float multiplier rescale (4 DSP, accuracy ceiling of INT4)."
+}

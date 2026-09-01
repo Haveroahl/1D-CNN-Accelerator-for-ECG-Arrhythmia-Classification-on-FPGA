@@ -1,0 +1,37 @@
+{
+  "variant": "flatten_head",
+  "backbone": "4-8-8-16 (unpruned)",
+  "head": "flatten -> FC(64->4)",
+  "params": 1436,
+  "best_epoch": 44,
+  "float": {
+    "accuracy": 0.923943661971831,
+    "f1_macro": 0.9142675388315136,
+    "confusion_matrix": [
+      [
+        191,
+        17,
+        2,
+        8
+      ],
+      [
+        28,
+        214,
+        0,
+        0
+      ],
+      [
+        5,
+        0,
+        373,
+        2
+      ],
+      [
+        10,
+        6,
+        3,
+        206
+      ]
+    ]
+  }
+}

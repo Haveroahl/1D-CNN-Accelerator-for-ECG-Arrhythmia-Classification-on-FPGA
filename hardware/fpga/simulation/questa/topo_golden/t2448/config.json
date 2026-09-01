@@ -1,0 +1,41 @@
+{
+  "tag": "t2448",
+  "out_ch": [
+    2,
+    4,
+    4,
+    8
+  ],
+  "in_ch": {
+    "conv1": 1,
+    "conv2": 2,
+    "conv3": 4,
+    "conv4": 4
+  },
+  "cp_en": {
+    "conv1": 3,
+    "conv2": 15,
+    "conv3": 15,
+    "conv4": 255
+  },
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7
+  },
+  "base": {
+    "conv1": 0,
+    "conv2": 1,
+    "conv3": 3,
+    "conv4": 7
+  },
+  "total_words": 11,
+  "expected_argmax": 3,
+  "logits": [
+    315,
+    -504,
+    356,
+    635
+  ]
+}

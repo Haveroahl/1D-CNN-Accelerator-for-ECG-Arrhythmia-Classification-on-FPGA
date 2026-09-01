@@ -1,5 +1,11 @@
 # CNN Accelerator — ECG Arrhythmia Classification (DE10-Standard)
 
+> **⚠️ Phạm vi luận văn**: bài chỉ trình bày bản **`hardware/RTL/` (ROM single-load) trên
+> DE10-Standard**. Các mục dưới đây mô tả **toàn bộ** những gì tồn tại trong repo — bao gồm
+> `RTL_weight/` (weight-load qua Avalon + runtime topology config), biến thể SIMD-20 và port
+> DE0-Nano — **những phần này KHÔNG đưa vào luận văn**. Xem khung phạm vi ở `PROJECT.md`.
+> Tài liệu này giữ nguyên mô tả kỹ thuật đầy đủ để tham chiếu khi làm việc với repo.
+
 ## Kiến Trúc Tổng Thể
 
 ```

@@ -3,8 +3,7 @@
 ## Tổng Quan
 
 ```
-HPS (Cortex-A9)
-    │ Lightweight HPS-to-FPGA bridge
+Avalon-MM master (host)
     │ Avalon-MM
     ▼
 avalon_slave ──────────────────────────────▶ Input SRAM (2500×8b, cố định)
@@ -16,6 +15,12 @@ ping_pong_sram (2 banks × 8 channels × 512 entries × 8b)
     ← Pong write: cp_engine pool_write
     → Ping read: cp_engine SRW[ch] (Conv2..4) / gap_fc_argmax (GAP phase)
 ```
+
+> `avalon_slave.v` chỉ là bus adapter — bất kỳ Avalon-MM master nào cũng dùng được.
+> Thiết kế ban đầu nhắm HPS (Cortex-A9) nhưng Quartus Lite không có IP HPS Cyclone
+> V nên Phase D thực tế dùng **JTAG-to-Avalon + System Console** (`jtag_top.v`,
+> đã chạy board thật 94.27%) — xem [System_Design.md](../System_Design.md) mục
+> Phase D. Địa chỉ/word map dưới đây không đổi dù host là HPS hay JTAG.
 
 ---
 
@@ -92,42 +97,59 @@ assign sram_rd_addr = (sram_rd_addr_in >= 12'd2) ? (sram_rd_addr_in - 12'd2) : 1
 
 ## Avalon-MM Interface
 
-**Memory Map** (word-addressable, 32-bit, base = HPS bridge addr):
+**Module:** `avalon_slave.v` — bản ROM single-load (`hardware/RTL/`). Địa chỉ
+`avs_address[13:0]` là **word address** (không phải byte offset). Chỉ có Input SRAM
+write port + control/status — **không có** weight/bias/FC bus-write, không có
+CONFIG window (khác `RTL_weight/`, xem [System_Design.md](../System_Design.md)
+mục "Runtime-Reconfigurable Topology").
+
+**Memory Map** (word address, `avs_address[13:0]`):
 
 ```
-Offset  Byte    R/W  Tên       Mô tả
+Word Addr  R/W  Tên       Mô tả
 ──────────────────────────────────────────────────────────────────────
-0x00    0x00    W    DATA_IN   1 sample INT8 (bits [7:0])
-0x01    0x04    W    ADDR_IN   Địa chỉ Input SRAM (0..2499), 12-bit
-0x02    0x08    W    WR_EN     Ghi 1 → write DATA_IN → SRAM[ADDR_IN]
-0x03    0x0C    W    START     Ghi 1 → pulse start 1 cycle → inference
-0x04    0x10    R    STATUS    [0]=busy, [1]=done_latched
-0x05    0x14    R    RESULT    [1:0]=class (0=AFIB,1=GSVT,2=SB,3=SR)
+0x0000     W    DATA_IN   1 sample INT8 (bits [7:0]) — sram_din
+0x0001     W    ADDR_IN   Địa chỉ Input SRAM (0..2499), 12-bit — sram_wr_addr
+0x0002     W    WR_EN     Ghi bit[0]=1 → write DATA_IN → SRAM[ADDR_IN] — sram_we
+0x0003     W    START     Ghi bit[0]=1 → pulse start 1 cycle; clear done_latched
+0x0004     R    STATUS    [0]=busy, [1]=done_latched
+0x0005     R    RESULT    [1:0]=class (0=AFIB,1=GSVT,2=SB,3=SR)
+0x1000..   W    DATA WINDOW (burst) — addr[12]=1: index=addr[11:0] (0..2499),
+0x19C3          write word → sram_din<=wd[7:0], sram_wr_addr<=index, sram_we<=1
+                (1 word = 1 SRAM byte; dùng bởi JTAG-to-Avalon host, xem
+                hardware/fpga/soc/ecg_jtag_console.tcl)
 ```
 
-**HPS Software Sequence (C):**
+Low-register path (0x0000-0x0005) và DATA WINDOW (0x1000+) đều ghi vào cùng
+`sram_din`/`sram_wr_addr`/`sram_we` — khác nhau ở việc DATA WINDOW gói cả 3 thành
+1 write duy nhất (`avs_address[11:0]` = SRAM address luôn), còn low-register path
+cần 3 lần ghi riêng (DATA_IN, ADDR_IN, rồi WR_EN) như `tb_top.v` dùng.
+
+**HPS/host Software Sequence (C, qua low-register path):**
 
 ```c
 volatile uint32_t *avs = mmap(NULL, 0x20, PROT_RW, MAP_SHARED, fd, 0xFF200000);
+// word address → byte offset = word_addr << 2
 
 // 1. Load 2500 ECG samples vào Input SRAM
 for (int i = 0; i < 2500; i++) {
-    avs[0x00 >> 2] = samples[i];   // DATA_IN
-    avs[0x04 >> 2] = i;            // ADDR_IN
-    avs[0x08 >> 2] = 1;            // WR_EN pulse
+    avs[0x0000] = samples[i];   // DATA_IN  (word addr 0x0000)
+    avs[0x0001] = i;            // ADDR_IN  (word addr 0x0001)
+    avs[0x0002] = 1;            // WR_EN pulse (word addr 0x0002)
 }
 
 // 2. Start inference
-avs[0x0C >> 2] = 1;               // START pulse
+avs[0x0003] = 1;               // START pulse (word addr 0x0003)
 
 // 3. Poll busy
-while (avs[0x10 >> 2] & 0x1);    // wait busy=0
+while (avs[0x0004] & 0x1);     // STATUS bit[0]=busy
 
 // 4. Read result
-uint32_t cls = avs[0x14 >> 2] & 0x3;
+uint32_t cls = avs[0x0005] & 0x3;   // RESULT
 ```
 
 **Note:** `done_latched` được clear khi ghi START. `busy` = 1 khi layer_state ≠ IDLE/DONE.
+Tất cả 1-cycle strobe (`sram_we`, `start`) tự động về 0 cycle sau nếu không ghi lại.
 
 ---
 
@@ -150,11 +172,14 @@ Address:
 
 conv_bias.hex   32 entries INT32 little-endian  (8oc × 4layer)
                 addr = oc*4 + layer_idx  (layer_idx: Conv1=0..Conv4=3)
-                b_store[0:31] MLAB — $readmemh trong cp_engine.v
+                b_store[0:31] MLAB — $readmemh trong cp_weight_store.v
 
 fc_weights.hex  32 entries INT8  (4k × 8i)
                 addr = k*8 + i
-                fc_w[0:31] — $readmemh trong gap_fc_argmax.v
+                fc_w[0:31] — $readmemh trong fc_unit.v (submodule của gap_fc_argmax)
+
+fc_bias.hex     4 entries INT32 little-endian, pre-scaled 2^w_shift[fc]
+                fc_b[0:3] — $readmemh trong fc_unit.v; seed vào fc_acc tại fc_step==0
 ```
 
 **Hex format:** KHÔNG có comment lines ($readmemh Quartus yêu cầu).

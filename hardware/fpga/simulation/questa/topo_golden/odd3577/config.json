@@ -1,0 +1,41 @@
+{
+  "tag": "odd3577",
+  "out_ch": [
+    3,
+    5,
+    7,
+    7
+  ],
+  "in_ch": {
+    "conv1": 1,
+    "conv2": 3,
+    "conv3": 5,
+    "conv4": 7
+  },
+  "cp_en": {
+    "conv1": 7,
+    "conv2": 31,
+    "conv3": 127,
+    "conv4": 127
+  },
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7
+  },
+  "base": {
+    "conv1": 0,
+    "conv2": 1,
+    "conv3": 4,
+    "conv4": 9
+  },
+  "total_words": 16,
+  "expected_argmax": 1,
+  "logits": [
+    -200,
+    798,
+    -998,
+    736
+  ]
+}

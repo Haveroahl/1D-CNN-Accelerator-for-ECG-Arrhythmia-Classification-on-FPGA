@@ -108,10 +108,12 @@ module tb_niosv_system;
     end
 
     // ── Watchdog: the firmware ends in an infinite halt loop after printing.
-    // Three inferences over 2500-byte loads at 3 writes/byte ≈ a few hundred k
-    // CPU instructions + 3×5216 accelerator cycles. Give it generous headroom. ──
+    // The software-vs-accelerator benchmark runs one full INT8 CNN inference on
+    // the Nios V core itself: 112,400 MACs at roughly 8-15 CPU cycles each is
+    // ~9-17 ms of simulated time, on top of the 2500-byte Avalon load, the
+    // accelerator run and the JTAG-UART printfs. 60 ms leaves clear headroom. ──
     initial begin
-        #20_000_000;   // 20 ms sim time
+        #60_000_000;   // 60 ms sim time
         $display("[TB] watchdog timeout — stopping.");
         $stop;
     end

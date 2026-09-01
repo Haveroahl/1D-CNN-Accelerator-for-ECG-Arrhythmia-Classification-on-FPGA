@@ -17,6 +17,18 @@ timing out **per submodule**.
 > [cp_block_conv1_probe_raw.txt](cp_block_conv1_probe_raw.txt) (Conv1, in_ch=1),
 > [cp_block_conv4_probe_raw.txt](cp_block_conv4_probe_raw.txt) (Conv4, in_ch=8).
 > Column order in the raw logs: `... mux_s1 a5 ce5 | tree_out acc accf av | shft clmp relu rv | pw pout`.
+>
+> ⚠️ **Stale after commit 369f200** ("fold S5b into S_bias"): these raw logs and
+> `tb_cpb_cycle_probe.v` were captured against the pre-fold RTL, which had a
+> separate `acc_final_r`/`acc_final_v` register (S5b). The current
+> `cp_accumulate_rescale.v` no longer has those signals — `S_bias` is now a bare
+> delay-then-capture (`biased`/`bias_valid`, gated by `out_valid_d1`), one cycle
+> earlier and with no adder. The probe testbench references
+> `u_accres.acc_final_r`/`acc_final_v`, which **will fail to compile** against the
+> current RTL — it needs re-capturing (rename to `biased`/`bias_valid`) before the
+> `accf`/`av` columns below can be trusted again. The `acc` values and cadence
+> (spacing between outputs) are unaffected by the fold and remain valid as
+> illustrative numbers.
 
 ---
 
@@ -70,31 +82,39 @@ tree_sext = {{12{tree_out[19]}}, tree_out};              // 20 → 32b
 round_add = (nb > 0) ? (32'sd1 << (nb-1)) : 0;           // round-half-up, folded
 ```
 
-| stage  | register(s)                 | behavior                                                                 |
-|--------|-----------------------------|--------------------------------------------------------------------------|
-| S5     | `acc`                       | `a_in==0` → `acc <= tree_sext + bias_in + round_add` (**init: bias+round folded in**); else `acc <= acc + tree_sext` |
-| S5b    | `acc_final_r`,`acc_final_v` | `acc_final_v <= out_valid`; on `out_valid`, `acc_final_r` latches the full sum for **exactly 1 cycle** (adds the last channel's `tree_sext`, breaking the 2-adder critical path) |
-| S_bias | `biased`,`bias_valid`       | **pure passthrough** (`biased <= acc_final_r`) — bias already folded; kept only for pipeline depth / valid timing |
+| stage  | register(s)                     | behavior                                                                 |
+|--------|----------------------------------|--------------------------------------------------------------------------|
+| S5     | `acc`                            | `a_in==0` → `acc <= tree_sext + bias_in + round_add` (**init: bias+round folded in**); else `acc <= acc + tree_sext` |
+| S_bias | `biased`,`bias_valid`,`out_valid_d1` | `out_valid_d1 <= out_valid`; `bias_valid <= out_valid_d1`; on `out_valid_d1`, `biased <= acc` (**bare capture, no adder** — `acc` already holds the completed sum 1 cycle after `out_valid`, right before S5's `a_in==0` branch overwrites it for the next window). Replaces the old S5b (`acc_final_r`/`acc_final_v`) + S_bias pair: same 2-cycle depth from `acc`→`biased`, one fewer 32-bit adder (commit 369f200). |
 | S6     | `shifted`,`rescale_v1`      | **pure arithmetic shift** `shifted <= biased >>> nb` (round already added at S5) |
 | S7     | `clamped`,`rescale_v2`      | `clamped <= (shifted>127)?127 : (shifted<-127)?-127 : shifted[7:0]`      |
 | S8     | `relu_out`,`relu_v`         | `relu_out <= (relu_en && clamped[7]) ? 0 : clamped` (ReLU active Conv4 only) |
 
 **Valid chain (5 register hops):**
 ```
-out_valid → acc_final_v → bias_valid → rescale_v1 → rescale_v2 → relu_v
+out_valid → out_valid_d1 → bias_valid → rescale_v1 → rescale_v2 → relu_v
 ```
-so `relu_out` is valid **5 cycles after `out_valid`**.
+so `relu_out` is valid **5 cycles after `out_valid`** — same total latency in cycles
+as before the fold. What changed is the register *count* at the bias stage: the old
+S5b+S_bias pair used 2 registers (`acc_final_r`+`biased`) across those hops, one of
+which was a 32-bit adder; the new S_bias uses 1 register (`biased`, bare capture) plus
+`out_valid_d1` taking over the valid-delay role `acc_final_v` used to play — same
+depth, one fewer adder.
 
-> ⚠️ S6 is a *pure* `>>> nb` — the `+ round_add` is **folded into the S5/S5b acc-init
+> ⚠️ S6 is a *pure* `>>> nb` — the `+ round_add` is **folded into the S5 acc-init
 > term** (`a_in==0`). Numerically identical to `(acc + bias + round) >>> nb`
 > (round-half-up, signed), but off the S6 critical path. Older `cp_pipeline.md`
-> snippets that show `(biased + round_add) >>> nb` at S6 predate this fold.
+> snippets that show `(biased + round_add) >>> nb` at S6, or that show a separate
+> S5b stage, predate this fold (commit 369f200).
 
 ### 2a. Conv4 (in_ch=8) — 8 channels accumulate → 1 output every 8 cycles
 
-From `cp_block_conv4_probe_raw.txt`, one complete output (`a_d5` sweeps 0→7):
+From `cp_block_conv4_probe_raw.txt` (pre-fold capture — see staleness warning above;
+column originally labelled `accf`/`av` maps to today's `biased`/`bias_valid`, and the
+whole bias-capture step is now 1 cycle earlier since `out_valid_d1` replaces the old
+`acc_final_v` 1:1). One complete output (`a_d5` sweeps 0→7):
 
-| cyc | a_d5 | tree_out | acc      | accf | av | shft | clmp | relu | rv |
+| cyc | a_d5 | tree_out | acc      | biased (was accf) | bias_valid (was av) | shft | clmp | relu | rv |
 |-----|------|----------|----------|------|----|------|------|------|----|
 | 45  | 0    | 865      | 865 (init)| 0   | 0  |      |      |      |    |
 | 46  | 1    | 1311     | 943      | 0    | 0  |      |      |      |    |
@@ -110,8 +130,10 @@ From `cp_block_conv4_probe_raw.txt`, one complete output (`a_d5` sweeps 0→7):
 | 56  | 3    | −231     | 4143     | 6156 | 0  | 48   | **48** |    |    |
 | 57  | 4    | 42       | 3912     | 6156 | 0  | 48   | 48   | **48** | **1** |
 
-- `a_d5=7` (cyc 52) is `in_ch-1` → `out_valid` → `acc_final_r=6156`, `av=1` one cycle
-  later at cyc 53. Meanwhile `acc` at cyc 53 already restarts the *next* output (init).
+- `a_d5=7` (cyc 52) is `in_ch-1` → `out_valid` → `acc=6156` one cycle later at cyc 53
+  (this raw capture predates the fold, so its `accf`/`av` columns line up with what is
+  now `biased`/`bias_valid`, captured via `out_valid_d1`). Meanwhile `acc` at cyc 53
+  already restarts the *next* output (init).
 - **Rescale:** `nb=7` (Conv4). `6156 >>> 7 = 48` — arithmetic shift drops the low 7 bits
   (floor); the round-half-up term was already added into `acc`, so this is one shift, no
   add. (`6156/128 = 48.09` decimal, but the shift yields the integer 48 directly.)
@@ -120,11 +142,11 @@ From `cp_block_conv4_probe_raw.txt`, one complete output (`a_d5` sweeps 0→7):
 
 ### 2b. Conv1 (in_ch=1) — init and finalize every cycle → 1 output/cycle
 
-From `cp_block_conv1_probe_raw.txt`. Because `in_ch=1`, `a_in==0` **every** cycle, so the
-accumulator both initialises and finalises in the same cycle (`out_valid` is high every
-cycle once the pipeline is primed):
+From `cp_block_conv1_probe_raw.txt` (pre-fold capture — see staleness warning above).
+Because `in_ch=1`, `a_in==0` **every** cycle, so the accumulator both initialises and
+finalises in the same cycle (`out_valid` is high every cycle once the pipeline is primed):
 
-| cyc | tree_out | acc / accf | av | shft | clmp | relu | rv |
+| cyc | tree_out | acc / biased (was accf) | bias_valid (was av) | shft | clmp | relu | rv |
 |-----|----------|-----------|----|------|------|------|----|
 | 10  | 6        | 0         | 0  |      |      |      |    |
 | 11  | −158     | 0         | 1  |      |      |      |    |
@@ -183,9 +205,11 @@ into `max_reg`).
 | layer | in_ch | nb | cp_mac latency | acc spacing (1 output every) | pool_write every |
 |-------|-------|----|----------------|-------------------------------|-------------------|
 | Conv1 | 1     | 8  | 4 cy           | 1 cy                          | 5 cy              |
-| Conv2 | 4     | 6  | 4 cy           | 4 cy                          | 20 cy             |
+| Conv2 | 4     | 7  | 4 cy           | 4 cy                          | 20 cy             |
 | Conv3 | 4     | 6  | 4 cy           | 4 cy                          | 20 cy             |
 | Conv4 | 8     | 7  | 4 cy           | 8 cy                          | 40 cy             |
+
+(nb ningba, re-train 2026-07-28; Chapman gốc dùng Conv2 nb=6 — xem [PROJECT.md](../../PROJECT.md).)
 
 Only `a_in`/`in_ch`/`nb` (from `cnn_controller`) differ between layers — the datapath is
 identical. cp_mac is always 4 cycles; the accumulator's init/finalize spacing is what

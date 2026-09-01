@@ -12,12 +12,12 @@ module tb_cp_block;
 
     // ── DUT signals ──────────────────────────────────────────────────
     reg        clk, rst;
-    reg [39:0] taps_in;   // packed 5×8b: taps_in[tap*8+:8]
+    reg [39:0] taps_in;   // packed 5×8b: taps_in[tap*8+:8] → drives x_in port
     reg [39:0] w;         // packed 5×8b: w[tap*8+:8]
     reg signed [31:0] bias_in;
     reg [3:0]  a_in, in_ch;
     reg        compute_en_in;
-    reg [4:0]  nb;
+    reg [3:0]  nb;        // rescale shift (max used = 8; port narrowed to [3:0])
     reg        relu_en;
     reg        pool_rst;
     wire       pool_write;
@@ -26,7 +26,7 @@ module tb_cp_block;
     cp_block dut (
         .clk          (clk),
         .rst          (rst),
-        .taps_in      (taps_in),
+        .x_in         (taps_in),
         .w            (w),
         .bias_in      (bias_in),
         .a_in         (a_in),
@@ -521,7 +521,7 @@ module tb_cp_block;
                 @(posedge clk); #1;
                 // When relu_v is asserted, the NEXT pool eval would count it.
                 if (dut.relu_v === 1'b1) begin
-                    pc_before = dut.pool_cnt;   // snapshot before the gated cycle
+                    pc_before = dut.u_pool.pool_cnt;   // snapshot before the gated cycle
                     compute_en_in = 0;          // <-- relu_v=1 AND compute_en_in=0
                     @(posedge clk); #1;          // pool eval happens here, gated off
                     armed = 1;
@@ -530,11 +530,11 @@ module tb_cp_block;
             if (!armed) begin
                 $display("FAIL [TC19_fec_relu_v_no_compute_en] relu_v never observed  (%0t ns)", $time - tc_t0);
                 fail_cnt = fail_cnt + 1;
-            end else if (dut.pool_cnt === pc_before) begin
-                $display("PASS [TC19_fec_relu_v_no_compute_en] pool_cnt held=%0d (relu_v=1,ce=0 not counted)  (%0t ns)", dut.pool_cnt, $time - tc_t0);
+            end else if (dut.u_pool.pool_cnt === pc_before) begin
+                $display("PASS [TC19_fec_relu_v_no_compute_en] pool_cnt held=%0d (relu_v=1,ce=0 not counted)  (%0t ns)", dut.u_pool.pool_cnt, $time - tc_t0);
                 pass_cnt = pass_cnt + 1;
             end else begin
-                $display("FAIL [TC19_fec_relu_v_no_compute_en] pool_cnt advanced %0d->%0d despite ce=0  (%0t ns)", pc_before, dut.pool_cnt, $time - tc_t0);
+                $display("FAIL [TC19_fec_relu_v_no_compute_en] pool_cnt advanced %0d->%0d despite ce=0  (%0t ns)", pc_before, dut.u_pool.pool_cnt, $time - tc_t0);
                 fail_cnt = fail_cnt + 1;
             end
         end

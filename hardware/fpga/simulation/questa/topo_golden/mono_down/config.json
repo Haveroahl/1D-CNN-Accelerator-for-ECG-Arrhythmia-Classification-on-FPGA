@@ -1,0 +1,41 @@
+{
+  "tag": "mono_down",
+  "out_ch": [
+    8,
+    4,
+    2,
+    1
+  ],
+  "in_ch": {
+    "conv1": 1,
+    "conv2": 8,
+    "conv3": 4,
+    "conv4": 2
+  },
+  "cp_en": {
+    "conv1": 255,
+    "conv2": 15,
+    "conv3": 3,
+    "conv4": 1
+  },
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7
+  },
+  "base": {
+    "conv1": 0,
+    "conv2": 1,
+    "conv3": 9,
+    "conv4": 13
+  },
+  "total_words": 15,
+  "expected_argmax": 3,
+  "logits": [
+    42,
+    -307,
+    -220,
+    178
+  ]
+}

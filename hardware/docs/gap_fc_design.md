@@ -4,6 +4,21 @@
 
 Engine độc lập, chạy sau Conv4 hoàn thành. Không dùng CP block pipeline.
 
+**Cấu trúc module:** `gap_fc_argmax.v` là **wrapper mỏng** (bit-exact structural split,
+không đổi logic) ghép 3 submodule:
+
+```
+gap_fc_argmax
+├── gap_unit    — GAP (ping_dout → gap_reg_flat)
+├── fc_unit     — FC + FC weight/bias store (gap_reg_flat → fc_acc_flat)
+└── argmax_unit — Argmax (fc_acc_flat → result)
+```
+
+Port ngoài của `gap_fc_argmax` không đổi so với bản trước split — `ecg_core` không
+cần sửa. Bus giữa 3 submodule là `gap_reg_flat[63:0]` (8×INT8) và `fc_acc_flat[127:0]`
+(4×INT32), flatten vì Verilog-2001 cấm array port. Xem bảng port `gap_fc_argmax`
+trong [module_interfaces.md](module_interfaces.md) mục 8.
+
 **Input:** 8 Ping banks [0..7], mỗi bank 4 entries × INT8
 (= Conv4 Pong sau bank_sel swap tại CONV4→GAP_FC transition)
 
@@ -35,12 +50,21 @@ Pong SRAM[0..7] (8 banks × 4 entries × INT8)
 └─────────────────────────────┘
 ```
 
-**FC weights:** Register array (không phải ROM) — 32 weights × 8-bit = 256 bits, quá nhỏ cho M10K (9216 bits). 0-cycle latency.
+**FC weights:** Register array (không phải ROM), sống trong `fc_unit` — 32 weights ×
+8-bit = 256 bits, quá nhỏ cho M10K (9216 bits). 0-cycle latency.
 
 ```verilog
+// fc_unit.v
 reg signed [7:0] fc_w [0:31];   // 1D flat, addr = k*8 + i
-initial $readmemh("fc_weights.hex", fc_w);
+reg signed [31:0] fc_b [0:3];   // FC bias, INT32, pre-scaled 2^w_shift[fc]
+initial begin
+    $readmemh("fc_weights.hex", fc_w);
+    $readmemh("fc_bias.hex", fc_b);
+end
 ```
+
+FC bias được seed thẳng vào `fc_acc[k]` tại `fc_step==0` (thay vì cộng riêng sau khi
+accumulate) — MAC loop cộng dồn luôn coi như đã có bias.
 
 ## GAP Phase (6 cycles)
 

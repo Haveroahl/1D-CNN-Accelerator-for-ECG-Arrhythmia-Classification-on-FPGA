@@ -1,0 +1,41 @@
+{
+  "tag": "rand1",
+  "out_ch": [
+    3,
+    3,
+    6,
+    2
+  ],
+  "in_ch": {
+    "conv1": 1,
+    "conv2": 3,
+    "conv3": 3,
+    "conv4": 6
+  },
+  "cp_en": {
+    "conv1": 7,
+    "conv2": 7,
+    "conv3": 63,
+    "conv4": 3
+  },
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7
+  },
+  "base": {
+    "conv1": 0,
+    "conv2": 1,
+    "conv3": 4,
+    "conv4": 7
+  },
+  "total_words": 13,
+  "expected_argmax": 1,
+  "logits": [
+    -125,
+    427,
+    -628,
+    -818
+  ]
+}

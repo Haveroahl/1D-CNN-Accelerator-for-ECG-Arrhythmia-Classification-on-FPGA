@@ -1,0 +1,1494 @@
+// =====================================================================
+// top_demo.txt — Combined RTL for ECG CNN Accelerator (DE10-Standard)
+// Auto-generated: concatenation of hardware/RTL/*.v
+//
+// Module order (leaf → top):
+//   1. cp_block.v
+//   2. cp_engine.v        (instantiates cp_block)
+//   3. cnn_controller.v
+//   4. gap_fc_argmax.v
+//   5. ping_pong_sram.v
+//   6. input_sram.v
+//   7. avalon_slave.v
+//   8. ecg_accelerator_top.v   (instantiates all of the above)
+// =====================================================================
+
+
+// =====================================================================
+// FILE 1/8 : hardware/RTL/cp_block.v
+// =====================================================================
+
+// cp_block.v
+// Conv-Pool Block — 1 output channel
+//
+// Pipeline: MULT(1) → TREE(3) → ACC(IN_CH) → ACC_FINAL(1) → BIAS(1) → RESCALE(2) → RELU(1) → POOL
+// Rescale: (biased + (1 << (nb-1))) >>> nb  (round-half-up, signed) → clamp[-127, 127]
+//
+// Interface boundary:
+//   - taps_in[0:4] : 5 tap values from cp_engine mux_s2 (2-cy delayed)
+//   - a_in         : channel counter delayed 5 cycles from cp_engine (a_d5)
+//   - compute_en_in: pipeline enable delayed 5 cycles from cp_engine (ce_d5)
+//   - w[0:4]       : weights from cp_engine w_cur_flat (2-stage pipeline, arrive cycle N+2)
+//   - bias_in      : INT32 bias from b_cur
+//   - pool_write   : output — write strobe to Pong SRAM (AND with cp_en externally)
+//   - pool_out     : output — max-pooled INT8 value
+
+module cp_block #(
+    parameter IN_CH_W = 4   // width of a_d5 counter (fixed 4-bit, matches cp_engine)
+) (
+    input  wire                  clk,
+    input  wire                  rst,
+
+    // Tap inputs from cp_engine (= mux_s1, already registered), packed 5×8b
+    input  wire [39:0]           taps_in,    // taps_in[tap*8+:8]
+
+    // Weight inputs (from w_packed, registered 1 cycle), packed 5×8b
+    input  wire [39:0]           w,          // w[tap*8+:8]
+
+    // Bias (INT32, from bias_rom)
+    input  wire signed [31:0]    bias_in,
+
+    // Controller signals
+    input  wire [3:0]            a_in,           // channel counter delayed 5 cycles (a_d5)
+    input  wire [3:0]            in_ch,          // IN_CH for current layer (1/4/4/8)
+    input  wire                  compute_en_in,   // pipeline enable delayed 5 cycles (ce_d5)
+    input  wire [4:0]            nb,              // rescale shift amount
+    input  wire                  relu_en,         // 1 = Conv4 only
+
+    // Pool reset (layer transition)
+    input  wire                  pool_rst,
+
+    // Outputs
+    output wire                  pool_write,      // write strobe (AND cp_en externally)
+    output wire signed [7:0]     pool_out         // max-pooled value to Pong SRAM
+);
+
+    // ── out_valid ──────────────────────────────────────────────────────────
+    wire out_valid = compute_en_in && (a_in == in_ch - 4'd1);
+
+    // ── S1: 5 Multipliers (registered) ────────────────────────────────────
+    reg signed [15:0] prod [0:4];
+    always @(posedge clk) begin
+        prod[0] <= $signed(taps_in[0*8 +: 8]) * $signed(w[0*8 +: 8]);
+        prod[1] <= $signed(taps_in[1*8 +: 8]) * $signed(w[1*8 +: 8]);
+        prod[2] <= $signed(taps_in[2*8 +: 8]) * $signed(w[2*8 +: 8]);
+        prod[3] <= $signed(taps_in[3*8 +: 8]) * $signed(w[3*8 +: 8]);
+        prod[4] <= $signed(taps_in[4*8 +: 8]) * $signed(w[4*8 +: 8]);
+    end
+
+    // ── S2: Adder stage-1 ──────────────────────────────────────────────────
+    reg signed [16:0] sum01, sum23;
+    reg signed [15:0] p4_d1;
+    always @(posedge clk) begin
+        sum01 <= prod[0] + prod[1];
+        sum23 <= prod[2] + prod[3];
+        p4_d1 <= prod[4];
+    end
+
+    // ── S3: Adder stage-2 ──────────────────────────────────────────────────
+    reg signed [17:0] sum0123;
+    reg signed [15:0] p4_d2;
+    always @(posedge clk) begin
+        sum0123 <= sum01 + sum23;
+        p4_d2   <= p4_d1;
+    end
+
+    // ── S4: Adder stage-3 ──────────────────────────────────────────────────
+    reg signed [19:0] tree_out;
+    always @(posedge clk)
+        tree_out <= sum0123 + p4_d2;
+
+    // ── S5: Accumulator ────────────────────────────────────────────────────
+    reg signed [31:0] acc;
+    wire signed [31:0] tree_sext = {{12{tree_out[19]}}, tree_out};
+
+    always @(posedge clk) begin
+        if (rst || pool_rst) acc <= 32'sd0;
+        else if (compute_en_in) begin
+            if (a_in == 0) acc <= tree_sext;
+            else           acc <= acc + tree_sext;
+        end
+    end
+
+    // ── S5b: acc_final register (breaks 2-cascaded-adder critical path) ──────
+    // acc_final_r = acc + tree_sext for last ic; registered 1 cycle after out_valid.
+    reg signed [31:0] acc_final_r;
+    reg               acc_final_v;
+    always @(posedge clk) begin
+        if (rst || pool_rst) begin
+            acc_final_v <= 1'b0;
+            acc_final_r <= 32'sd0;
+        end else begin
+            acc_final_v <= out_valid;
+            if (out_valid)
+                acc_final_r <= (a_in == 0) ? tree_sext : (acc + tree_sext);
+        end
+    end
+
+    // ── S_bias: +Bias (registered) ─────────────────────────────────────────
+    reg signed [31:0] biased;
+    reg               bias_valid;
+    always @(posedge clk) begin
+        if (rst || pool_rst) begin
+            bias_valid <= 1'b0;
+            biased     <= 32'sd0;
+        end else begin
+            bias_valid <= acc_final_v;
+            if (acc_final_v)
+                biased <= acc_final_r + bias_in;
+        end
+    end
+
+    // ── S6: Rescale stage-1 (shift + round-half-up) ────────────────────────
+    // round_add precomputed as wire: separates subtract+shift from add+shift
+    wire signed [31:0] round_add;
+    assign round_add = (nb > 5'd0) ? (32'sd1 << (nb - 5'd1)) : 32'sd0;
+
+    reg signed [31:0] shifted;
+    reg               rescale_v1;
+    always @(posedge clk) begin
+        if (rst || pool_rst) begin
+            rescale_v1 <= 1'b0;
+            shifted    <= 32'sd0;
+        end else begin
+            rescale_v1 <= bias_valid;
+            if (bias_valid)
+                shifted <= (biased + round_add) >>> nb;
+        end
+    end
+
+    // ── S7: Rescale stage-2 (clamp to [-127, 127]) ─────────────────────────
+    reg signed [7:0] clamped;
+    reg              rescale_v2;
+    always @(posedge clk) begin
+        if (rst || pool_rst) begin
+            rescale_v2 <= 1'b0;
+            clamped    <= 8'sd0;
+        end else begin
+            rescale_v2 <= rescale_v1;
+            if (rescale_v1)
+                clamped <= (shifted > 32'sd127)  ?  8'sd127 :
+                           (shifted < -32'sd127) ? -8'sd127 : shifted[7:0];
+        end
+    end
+
+    // ── S8: ReLU (Conv4 only) ──────────────────────────────────────────────
+    reg signed [7:0] relu_out;
+    reg              relu_v;
+    always @(posedge clk) begin
+        if (rst || pool_rst) begin
+            relu_v   <= 1'b0;
+            relu_out <= 8'sd0;
+        end else begin
+            relu_v <= rescale_v2;
+            if (rescale_v2)
+                relu_out <= (relu_en && clamped[7]) ? 8'sd0 : clamped;
+        end
+    end
+
+    // ── S9: MaxPool rolling comparator ────────────────────────────────────
+    reg signed [7:0] max_reg;
+    reg [2:0]        pool_cnt;
+    reg              pool_write_r;
+
+
+    always @(posedge clk) begin
+        pool_write_r <= 1'b0;
+        if (rst || pool_rst) begin
+            pool_cnt     <= 3'd0;
+            pool_write_r <= 1'b0;
+            max_reg      <= 8'sd0;   // clear max so X-state never propagates post-reset
+        end else if (relu_v && compute_en_in) begin
+            // Gate pool_cnt with compute_en_in (= ce_d6): only count when pipeline
+            // carries valid data, not junk from SRW priming phase.
+            if (pool_cnt == 3'd0)
+                max_reg <= relu_out;
+            else if (relu_out > max_reg)
+                max_reg <= relu_out;
+
+            if (pool_cnt == 3'd4) begin
+                pool_cnt     <= 3'd0;
+                pool_write_r <= 1'b1;
+            end else begin
+                pool_cnt <= pool_cnt + 3'd1;
+            end
+        end
+    end
+
+    assign pool_write = pool_write_r;
+    assign pool_out   = max_reg;
+
+endmodule
+
+
+// =====================================================================
+// FILE 2/8 : hardware/RTL/cp_engine.v
+// =====================================================================
+
+// cp_engine.v
+// 8 CP blocks running in parallel for 8 output channels
+//
+// Responsibilities:
+//   1. SRW array: 8 shift-register windows (5-tap × 8-bit), one per input channel
+//   2. MUX: select SRW[a] each cycle → mux_s1 (1-stage, broadcast to all 8 cp_blocks)
+//   3. Delay chain: a → a_d5, compute_en → ce_d5  (5 cycles: mux_s1 + MULT + TREE×3)
+//   4. SRAM read address generation for Ping SRAM and Input SRAM
+//   5. 8 cp_block instances, weight from per-layer FF arrays (40b/word = 5 taps packed)
+//   6. Pool write gating: pool_write && cp_en[oc]
+//
+// Weight storage: 4 FF arrays per layer, each entry = 40-bit packed 5 taps.
+//   w_rom_conv1[0:3]   — 4 oc × 1 ic         (4 entries)
+//   w_rom_conv2[0:15]  — 4 oc × 4 ic         (16 entries)  addr = oc*4 + ic
+//   w_rom_conv3[0:31]  — 8 oc × 4 ic         (32 entries)  addr = oc*4 + ic
+//   w_rom_conv4[0:63]  — 8 oc × 8 ic         (64 entries)  addr = oc*8 + ic
+//   Loaded from conv1_w.hex .. conv4_w.hex (40b/line hex, MSB tap4 ... LSB tap0)
+//   FF array (no ramstyle): async read, no port limit, ~185 FF total — deterministic timing.
+//
+// Bias: b_store[oc*4 + layer_idx], INT32 little-endian, from conv_bias.hex (32 entries)
+//
+// Note: ping_pong_sram and input_sram are instantiated in ecg_accelerator_top.
+//       cp_engine receives dout from those SRAMs as inputs.
+//
+// Pipeline latency from mux_comb to acc register edge: 5 cycles
+//   cy N   : a → mux_comb (SRW async) + w_comb (ROM async, 8:1 MUX per oc)
+//   cy N+1 : mux_s1 ← mux_comb;  w_packed ← w_comb  (both FF registered)
+//   cy N+2 : prod ← mux_s1 * w_packed (S1 MULT)
+//   cy N+3 : sum01/sum23 (S2)
+//   cy N+4 : sum0123 (S3)
+//   cy N+5 : tree_out (S4) — acc edge reads a_d5/ce_d5/inch_d5 to match a from cy N
+
+module cp_engine (
+    input  wire        clk,
+    input  wire        rst,
+
+    // Controller signals
+    input  wire [3:0]  a,            // channel counter 0..IN_CH-1
+    input  wire [3:0]  in_ch,        // IN_CH for current layer: 1/4/4/8
+    input  wire [11:0] in_len,       // IN_LEN for current layer (2500/500/100/20)
+    input  wire        shift_en,     // = (a == IN_CH-1)
+    input  wire        srw_rst,      // SRW clear pulse (layer transition)
+    input  wire        compute_en,   // pipeline enable (0 during pre-fetch)
+    input  wire [4:0]  nb,           // rescale shift per layer
+    input  wire        relu_en,      // 1 = Conv4 only
+    input  wire [7:0]  cp_en,        // bitmask: which output channels are active
+    input  wire [2:0]  layer_state,  // CONV1=2, CONV2=3, CONV3=4, CONV4=5 (match controller)
+    input  wire        pool_rst,     // reset pool_cnt on layer transition
+
+    // Data from SRAMs (driven by top-level)
+    input  wire [7:0]  input_sram_dout,     // from input_sram (Conv1 only)
+    input  wire [63:0] ping_dout,           // from ping_pong_sram: ping_dout[ch*8+:8]
+
+    // Pong SRAM write interface (to ping_pong_sram write port)
+    // Note: write address is driven directly from cnn_controller.pong_addr at top-level
+    // (no logic needed inside cp_engine — saved a passthrough port).
+    output wire [63:0] pong_din,            // per-channel write data: pong_din[ch*8+:8]
+    output wire [7:0]  pong_we,             // per-channel write enable
+
+    // SRAM read address output (to top-level, feeds both input_sram and ping_pong_sram)
+    output wire [11:0] sram_rd_addr,        // driven by t and rp logic in controller
+    input  wire [11:0] sram_rd_addr_in      // sram_rd_addr from controller
+);
+
+    // ── Layer state encoding (must match cnn_controller) ──────────────────
+    localparam CONV1 = 3'd2;
+    localparam CONV2 = 3'd3;
+    localparam CONV3 = 3'd4;
+    localparam CONV4 = 3'd5;
+
+    // ── SRAM read address: t - 2 (padding offset) ─────────────────────────
+    assign sram_rd_addr = (sram_rd_addr_in >= 12'd2) ? (sram_rd_addr_in - 12'd2) : 12'd0;
+
+    // ── SRW[0..7]: 5-tap shift register per input channel ─────────────────
+    // 1D flat (Verilog-2001): srw_flat[ch*5 + slot]
+    //   Physical slot order (hardware shift register):
+    //     slot 0 = newest sample (just arrived from SRAM)
+    //     slot 4 = oldest sample (4 shifts ago)
+    //   Logical tap index (PyTorch cross-correlation pairing) is re-mapped at the MUX:
+    //     mux_comb[k=0] reads slot 4 (oldest) → pairs with w[k=0] · x[t-2]
+    //     mux_comb[k=4] reads slot 0 (newest) → pairs with w[k=4] · x[t+2]
+    //   This matches PyTorch F.conv1d: out[t] = Σ_k w[k] · x[t-2+k]
+    reg signed [7:0] srw_flat [0:39];  // 8ch × 5slot
+
+    // Zero-padding logic:
+    //   Front pad: sram_rd_addr_in < 2  → rd_addr would be negative (clamped to 0, garbage)
+    //   Back pad : sram_rd_addr_in >= in_len + 2  → rd_addr >= in_len (out of valid data range)
+    //
+    // The pad signal must align with SRAM dout (which has 1-cycle latency from
+    // rd_addr drive). We compute pad_zero_pre from ctrl_t (= drive cycle) then
+    // register it once so pad_zero_r arrives at SRW input the same cycle as dout.
+    wire pad_zero_pre = (sram_rd_addr_in < 12'd2) ||
+                        (sram_rd_addr_in >= (in_len + 12'd2));
+    reg  pad_zero_r;
+    always @(posedge clk) begin
+        if (srw_rst) pad_zero_r <= 1'b1;
+        else         pad_zero_r <= pad_zero_pre;
+    end
+
+    // Top-level MUX: Conv1 reads input_sram, Conv2..4 read ping_pong_sram
+    wire [7:0] srw_din [0:7];
+    assign srw_din[0] = pad_zero_r ? 8'h00
+                      : (layer_state == CONV1) ? input_sram_dout : ping_dout[0*8 +: 8];
+    assign srw_din[1] = pad_zero_r ? 8'h00 : ping_dout[1*8 +: 8];
+    assign srw_din[2] = pad_zero_r ? 8'h00 : ping_dout[2*8 +: 8];
+    assign srw_din[3] = pad_zero_r ? 8'h00 : ping_dout[3*8 +: 8];
+    assign srw_din[4] = pad_zero_r ? 8'h00 : ping_dout[4*8 +: 8];
+    assign srw_din[5] = pad_zero_r ? 8'h00 : ping_dout[5*8 +: 8];
+    assign srw_din[6] = pad_zero_r ? 8'h00 : ping_dout[6*8 +: 8];
+    assign srw_din[7] = pad_zero_r ? 8'h00 : ping_dout[7*8 +: 8];
+
+    integer ch;
+    always @(posedge clk) begin
+        if (srw_rst) begin
+            for (ch = 0; ch < 40; ch = ch + 1)
+                srw_flat[ch] <= 8'sd0;
+        end else if (shift_en) begin
+            for (ch = 0; ch < 8; ch = ch + 1) begin
+                srw_flat[ch*5 + 4] <= srw_flat[ch*5 + 3];
+                srw_flat[ch*5 + 3] <= srw_flat[ch*5 + 2];
+                srw_flat[ch*5 + 2] <= srw_flat[ch*5 + 1];
+                srw_flat[ch*5 + 1] <= srw_flat[ch*5 + 0];
+                srw_flat[ch*5 + 0] <= srw_din[ch];
+            end
+        end
+    end
+
+    // ── MUX: select srw_flat[a] → mux_comb → mux_s1 (1-stage) ───────────
+    // Re-index physical slots to logical kernel taps (PyTorch cross-correlation order):
+    //   mux_comb[k] pairs with w[k]; PyTorch w[0]·x[t-2], w[4]·x[t+2]
+    //   → mux_comb[0] = oldest (slot 4), mux_comb[4] = newest (slot 0)
+    wire signed [7:0] mux_comb [0:4];
+    assign mux_comb[0] = srw_flat[a[2:0]*5 + 4];  // oldest = x[t-2]
+    assign mux_comb[1] = srw_flat[a[2:0]*5 + 3];
+    assign mux_comb[2] = srw_flat[a[2:0]*5 + 2];  // center = x[t]
+    assign mux_comb[3] = srw_flat[a[2:0]*5 + 1];
+    assign mux_comb[4] = srw_flat[a[2:0]*5 + 0];  // newest = x[t+2]
+
+    reg [39:0] mux_s1;   // packed 5×8b, cycle N+1, matches w_packed arrival
+    integer mi;
+    always @(posedge clk) begin
+        for (mi = 0; mi < 5; mi = mi + 1)
+            mux_s1[mi*8 +: 8] <= mux_comb[mi];
+    end
+
+    // ── Delay chain: a, in_ch, compute_en delayed 5 cycles ──────────────────
+    // mux_s1(1) + MULT(1) + TREE(3) = 5 cycles. d5 outputs feed cp_block ports
+    // a_in / in_ch / compute_en_in so that at the acc-register edge cy N+5 the
+    // conditional matches the a value that drove mux_comb at cy N.
+    reg [3:0] a_d1, a_d2, a_d3, a_d4, a_d5;
+    reg [3:0] inch_d1, inch_d2, inch_d3, inch_d4, inch_d5;
+    reg       ce_d1, ce_d2, ce_d3, ce_d4, ce_d5;
+    always @(posedge clk) begin
+        if (srw_rst) begin
+            a_d1 <= 4'd0; a_d2 <= 4'd0; a_d3 <= 4'd0; a_d4 <= 4'd0; a_d5 <= 4'd0;
+            inch_d1 <= 4'd0; inch_d2 <= 4'd0; inch_d3 <= 4'd0;
+            inch_d4 <= 4'd0; inch_d5 <= 4'd0;
+            ce_d1 <= 1'b0; ce_d2 <= 1'b0; ce_d3 <= 1'b0;
+            ce_d4 <= 1'b0; ce_d5 <= 1'b0;
+        end else begin
+            a_d1 <= a;      a_d2 <= a_d1;  a_d3 <= a_d2;  a_d4 <= a_d3;  a_d5 <= a_d4;
+            inch_d1 <= in_ch;  inch_d2 <= inch_d1; inch_d3 <= inch_d2;
+            inch_d4 <= inch_d3; inch_d5 <= inch_d4;
+            ce_d1 <= compute_en; ce_d2 <= ce_d1; ce_d3 <= ce_d2;
+            ce_d4 <= ce_d3;      ce_d5 <= ce_d4;
+        end
+    end
+
+    // ── Layer index ────────────────────────────────────────────────────────
+    // CONV1=2→0, CONV2=3→1, CONV3=4→2, CONV4=5→3
+    wire [1:0] layer_idx = layer_state[1:0] - 2'd2;
+
+    // ── Weight arrays: 4 per-layer, packed 5-tap (40-bit) ───────────────────
+    // FF array (no ramstyle): Quartus infers async read register file.
+    // Total: (4+16+32+64)×40b = 4640b ≈ 185 FF — 0.1% of Cyclone V FF budget.
+    // Async read: w_comb[oc] combinational from addr → 1 FF stage (w_packed) →
+    // arrives at S1 MULT same cycle as mux_s1. No port replication needed.
+    reg [39:0] w_rom_conv1 [0:3];    // 4 oc × 1 ic
+    reg [39:0] w_rom_conv2 [0:15];   // 4 oc × 4 ic
+    reg [39:0] w_rom_conv3 [0:31];   // 8 oc × 4 ic
+    reg [39:0] w_rom_conv4 [0:63];   // 8 oc × 8 ic
+
+    // Bias: INT32, 8 oc × 4 layer = 32 entries, addr = oc*4 + layer_idx
+    (* ramstyle = "MLAB" *) reg signed [31:0] b_store [0:31];
+
+    initial begin
+        $readmemh("conv1_w.hex", w_rom_conv1);
+        $readmemh("conv2_w.hex", w_rom_conv2);
+        $readmemh("conv3_w.hex", w_rom_conv3);
+        $readmemh("conv4_w.hex", w_rom_conv4);
+        $readmemh("conv_bias.hex", b_store);
+    end
+
+    // ── Weight combinational MUX: w_rom[oc, a] → w_comb (async) ─────────
+    // Mirror of SRW mux_comb pattern: async select → 1 FF stage (w_packed).
+    // Per-oc: 4:1 layer MUX + 8:1 ic MUX (a[2:0]) — all combinational, ~2 LUT levels.
+    // oc=0..1: valid in Conv1..4; oc=2..3: Conv2..4; oc=4..7: Conv3..4.
+    wire [39:0] w_comb [0:7];
+
+    // Index widths per ROM depth (Quartus needs explicit width on array index):
+    //   conv1[0:3]   → 2-bit  (oc only)
+    //   conv2[0:15]  → 4-bit  (oc[1:0] || a[1:0])
+    //   conv3[0:31]  → 5-bit  (oc[2:0] || a[1:0])
+    //   conv4[0:63]  → 6-bit  (oc[2:0] || a[2:0])
+
+    assign w_comb[0] = (layer_state == CONV1) ? w_rom_conv1[2'd0]                :
+                       (layer_state == CONV2) ? w_rom_conv2[{2'd0, a[1:0]}]      :
+                       (layer_state == CONV3) ? w_rom_conv3[{3'd0, a[1:0]}]      :
+                       (layer_state == CONV4) ? w_rom_conv4[{3'd0, a[2:0]}]      : 40'd0;
+
+    assign w_comb[1] = (layer_state == CONV1) ? w_rom_conv1[2'd1]                :
+                       (layer_state == CONV2) ? w_rom_conv2[{2'd1, a[1:0]}]      :
+                       (layer_state == CONV3) ? w_rom_conv3[{3'd1, a[1:0]}]      :
+                       (layer_state == CONV4) ? w_rom_conv4[{3'd1, a[2:0]}]      : 40'd0;
+
+    assign w_comb[2] = (layer_state == CONV1) ? w_rom_conv1[2'd2]                :
+                       (layer_state == CONV2) ? w_rom_conv2[{2'd2, a[1:0]}]      :
+                       (layer_state == CONV3) ? w_rom_conv3[{3'd2, a[1:0]}]      :
+                       (layer_state == CONV4) ? w_rom_conv4[{3'd2, a[2:0]}]      : 40'd0;
+
+    assign w_comb[3] = (layer_state == CONV1) ? w_rom_conv1[2'd3]                :
+                       (layer_state == CONV2) ? w_rom_conv2[{2'd3, a[1:0]}]      :
+                       (layer_state == CONV3) ? w_rom_conv3[{3'd3, a[1:0]}]      :
+                       (layer_state == CONV4) ? w_rom_conv4[{3'd3, a[2:0]}]      : 40'd0;
+
+    assign w_comb[4] = (layer_state == CONV3) ? w_rom_conv3[{3'd4, a[1:0]}]             :
+                       (layer_state == CONV4) ? w_rom_conv4[{3'd4, a[2:0]}]             : 40'd0;
+
+    assign w_comb[5] = (layer_state == CONV3) ? w_rom_conv3[{3'd5, a[1:0]}]             :
+                       (layer_state == CONV4) ? w_rom_conv4[{3'd5, a[2:0]}]             : 40'd0;
+
+    assign w_comb[6] = (layer_state == CONV3) ? w_rom_conv3[{3'd6, a[1:0]}]             :
+                       (layer_state == CONV4) ? w_rom_conv4[{3'd6, a[2:0]}]             : 40'd0;
+
+    assign w_comb[7] = (layer_state == CONV3) ? w_rom_conv3[{3'd7, a[1:0]}]             :
+                       (layer_state == CONV4) ? w_rom_conv4[{3'd7, a[2:0]}]             : 40'd0;
+
+    // ── w_packed: register w_comb (1 FF stage, aligns with mux_s1) ───────
+    reg [39:0] w_packed [0:7];
+    always @(posedge clk) begin
+        w_packed[0] <= w_comb[0];
+        w_packed[1] <= w_comb[1];
+        w_packed[2] <= w_comb[2];
+        w_packed[3] <= w_comb[3];
+        w_packed[4] <= w_comb[4];
+        w_packed[5] <= w_comb[5];
+        w_packed[6] <= w_comb[6];
+        w_packed[7] <= w_comb[7];
+    end
+
+    // ── Bias: registered per layer (only changes on layer transition) ─────
+    reg signed [31:0] b_cur [0:7];
+    integer bi;
+    always @(posedge clk) begin
+        for (bi = 0; bi < 8; bi = bi + 1)
+            b_cur[bi] <= b_store[{bi[2:0], layer_idx}];  // 5-bit index: oc[2:0]*4 + layer_idx[1:0]
+    end
+
+    // ── 8 CP block instances ───────────────────────────────────────────────
+    wire        cp_pool_write [0:7];
+    wire signed [7:0] cp_pool_out [0:7];
+
+    genvar oc;
+    generate
+        for (oc = 0; oc < 8; oc = oc + 1) begin : cp_blocks
+            cp_block u_cp (
+                .clk           (clk),
+                .rst           (rst),
+                .taps_in       (mux_s1),
+                .w             (w_packed[oc]),
+                .bias_in       (b_cur[oc]),
+                // Pipeline depth from mux_comb to acc-register-update edge = 5 cycles
+                // (mux_s1, prod, sum01/23, sum0123, tree_out). At edge cy N+5, the
+                // acc conditional reads signals that must match mux_comb cy N → use d5.
+                .a_in          (a_d5),
+                .in_ch         (inch_d5),
+                .compute_en_in (ce_d5),
+                .nb            (nb),
+                .relu_en       (relu_en),
+                .pool_rst      (pool_rst),
+                .pool_write    (cp_pool_write[oc]),
+                .pool_out      (cp_pool_out[oc])
+            );
+        end
+    endgenerate
+
+    // ── Pong write port — gate pool_write with cp_en ───────────────────────
+    generate
+        for (oc = 0; oc < 8; oc = oc + 1) begin : pong_wr
+            assign pong_we[oc]           = cp_pool_write[oc] && cp_en[oc];
+            assign pong_din[oc*8 +: 8]   = cp_pool_out[oc];
+        end
+    endgenerate
+
+endmodule
+
+
+// =====================================================================
+// FILE 3/8 : hardware/RTL/cnn_controller.v
+// =====================================================================
+
+// cnn_controller.v
+// Unified FSM controlling the entire CNN accelerator pipeline.
+// Drives cp_engine (Conv1..4) and gap_fc_argmax (GAP/FC/Argmax) sequentially.
+//
+// NB values per layer (from QAT calibration — python_log.txt):
+//   NB1=8 (Conv1), NB2=6 (Conv2), NB3=6 (Conv3), NB4=7 (Conv4)
+
+module cnn_controller (
+    input  wire        clk,
+    input  wire        rst,       // synchronous reset
+    input  wire        start,     // 1-cycle pulse from avalon_slave
+
+    // pool_write from cp_engine (any active cp_block)
+    // All active blocks write simultaneously — use ch0 as representative
+    input  wire        pool_write,
+
+    // Outputs to cp_engine
+    output reg  [3:0]  a,             // channel counter 0..IN_CH-1
+    output reg  [11:0] t,             // output position counter
+    output wire        shift_en,      // = (a == in_ch - 1)
+    output reg         srw_rst,       // SRW clear pulse (1 cycle)
+    output reg         compute_en,    // pipeline enable
+    output reg  [3:0]  in_ch,         // current layer IN_CH
+    output reg  [11:0] in_len,        // current layer IN_LEN (Conv1=2500, Conv2=500, Conv3=100, Conv4=20)
+    output reg  [4:0]  nb,            // rescale shift
+    output reg         relu_en,       // ReLU enable (Conv4 only)
+    output reg  [7:0]  cp_en,         // active output channel bitmask
+    output reg         bank_sel,      // Ping/Pong bank selector
+    output reg  [11:0] pong_addr,     // Pong SRAM write address
+    output reg         pool_rst,      // reset pool_cnt on layer transition
+
+    // Outputs to gap_fc_argmax
+    output reg  [2:0]  fc_sub_state,
+    output reg  [3:0]  gap_step,
+    output reg  [3:0]  fc_step,
+    output reg  [1:0]  argmax_step,
+
+    // Input from gap_fc_argmax
+    input  wire [1:0]  argmax_result,
+
+    // Top-level outputs
+    output reg  [2:0]  layer_state,   // exposed for cp_engine MUX and top-level
+    output reg         busy,          // 1 while not IDLE/DONE
+    output reg         done,          // 1-cycle pulse
+    output reg  [1:0]  result         // latched argmax class index
+);
+
+    // ── FSM state encoding ─────────────────────────────────────────────────
+    localparam IDLE       = 3'd0,
+               LOAD_INPUT = 3'd1,
+               CONV1      = 3'd2,
+               CONV2      = 3'd3,
+               CONV3      = 3'd4,
+               CONV4      = 3'd5,
+               GAP_FC_S   = 3'd6,
+               DONE_S     = 3'd7;
+
+    // GAP_FC sub-states (match gap_fc_argmax.v)
+    localparam GAP_SUB    = 3'd1,
+               FC_SUB     = 3'd2,
+               FC_FLUSH_S = 3'd3,
+               ARGMAX_SUB = 3'd4,
+               DONE_SUB   = 3'd5;
+
+    // NB constants (QAT calibration: input_shift=2, w_shift conv1..4 = 6,6,6,7)
+    localparam NB1 = 5'd8,   // conv1: input_shift(2) + w_shift(6) = 8
+               NB2 = 5'd6,   // conv2: w_shift(6)
+               NB3 = 5'd6,   // conv3: w_shift(6)
+               NB4 = 5'd7;   // conv4: w_shift(7)
+
+    // ── Derived signals ────────────────────────────────────────────────────
+    // IN_LEN per layer: Conv1=2500, Conv2=500, Conv3=100, Conv4=20
+    // rp = t - 2 (read position with padding offset of 2)
+    // sram_rd_addr issued when sram_addr_en=1: addr = rp = t - 2
+    // For pre-fetch and boundary: controller issues addr, srw_din=0 if out of range (handled in cp_engine)
+
+    assign shift_en    = (a == in_ch - 4'd1);
+
+    // sram_rd_addr: output position t minus padding (2 taps ahead)
+    // Exposed as wire so top-level can route to both input_sram and ping_pong_sram
+    // The cp_engine uses t to track output position; read address = t - 2 + tap_offset
+    // Simplified: controller outputs t; cp_engine or top computes actual rd_addr
+    // Here: output t directly, let top-level wire t as rd_addr base
+    // (cp_engine handles out-of-range → srw_din=0 for padding)
+
+    // ── layer_done ─────────────────────────────────────────────────────────
+    // pong_addr holds current write address (increments AFTER pool_write non-blocking).
+    // layer_done fires on the LAST pool_write: pong_addr == out_len-1.
+    // The transition block resets pong_addr=0, so no conflict with the increment.
+    reg  [11:0] out_len;
+    wire        layer_done = (pong_addr == out_len - 12'd1) && pool_write;
+
+    // Pre-fetch counter: gates compute_en until pipeline (6 stages) + SRW prime.
+    // Per controller_fsm.md:64-68 — count 6 shift_en pulses before raising compute_en.
+    reg [2:0]   prefetch_cnt;
+    // gap_fc_done removed — was unused (FSM transitions via fc_sub_state == DONE_SUB directly)
+
+    // ── Main FSM ───────────────────────────────────────────────────────────
+    always @(posedge clk) begin
+        if (rst) begin
+            layer_state  <= IDLE;
+            done         <= 1'b0;
+            busy         <= 1'b0;
+            result       <= 2'b0;
+            compute_en   <= 1'b0;
+            srw_rst      <= 1'b0;
+            pool_rst     <= 1'b0;
+            cp_en        <= 8'h00;
+            bank_sel     <= 1'b0;
+            a            <= 4'd0;
+            t            <= 12'd0;
+            in_len       <= 12'd0;
+            pong_addr    <= 12'd0;
+            fc_sub_state <= 3'd0;
+            gap_step     <= 4'd0;
+            fc_step      <= 4'd0;
+            argmax_step  <= 2'd0;
+            prefetch_cnt <= 3'd0;
+        end else begin
+            // Defaults (overridden below)
+            srw_rst  <= 1'b0;
+            pool_rst <= 1'b0;
+            done     <= 1'b0;
+
+            case (layer_state)
+                // ── IDLE ───────────────────────────────────────────────
+                IDLE: begin
+                    busy <= 1'b0;
+                    if (start) begin
+                        layer_state <= LOAD_INPUT;
+                        busy        <= 1'b1;
+                    end
+                end
+
+                // ── LOAD_INPUT ─────────────────────────────────────────
+                // Input SRAM already loaded by HPS before start pulse.
+                // Immediately transition to CONV1.
+                LOAD_INPUT: begin
+                    layer_state  <= CONV1;
+                    in_ch        <= 4'd1;
+                    in_len       <= 12'd2500;
+                    out_len      <= 12'd500;
+                    nb           <= NB1;
+                    relu_en      <= 1'b0;
+                    cp_en        <= 8'h0F;
+                    bank_sel     <= 1'b0;
+                    a            <= 4'd0;
+                    t            <= 12'd0;
+                    pong_addr    <= 12'd0;
+                    compute_en   <= 1'b0;   // pre-fetch first; raised after 6 shift_en pulses
+                    prefetch_cnt <= 3'd0;
+                    srw_rst      <= 1'b1;
+                    pool_rst     <= 1'b1;
+                end
+
+                // ── CONV1..4 ───────────────────────────────────────────
+                CONV1, CONV2, CONV3, CONV4: begin
+                    // a counter: 0..IN_CH-1
+                    if (a == in_ch - 4'd1)
+                        a <= 4'd0;
+                    else
+                        a <= a + 4'd1;
+
+                    // t counter: increment when a wraps (= shift_en)
+                    if (shift_en)
+                        t <= t + 12'd1;
+
+                    // pong_addr: increment on pool_write
+                    // On layer_done (pool_write at addr out_len-1), the transition block
+                    // below resets pong_addr=0, overriding this increment (non-blocking
+                    // last-assignment-wins). That is correct: no more writes needed.
+                    if (pool_write)
+                        pong_addr <= pong_addr + 12'd1;
+
+                    // Pre-fetch: count REAL SRW shifts (gated by !srw_rst).
+                    // Need 5 shifts to fill SRW correctly:
+                    //   shift 0: slot0 ← pad (t=0 < 2)
+                    //   shift 1: slot0 ← pad (t=1 < 2)
+                    //   shift 2: slot0 ← data[0]
+                    //   shift 3: slot0 ← data[1]
+                    //   shift 4: slot0 ← data[2]
+                    // After 5 shifts, SRW = [data[2],data[1],data[0],0,0].
+                    // MUX a=0 → [0,0,data[0],data[1],data[2]] = output position 0. ✓
+                    //
+                    // srw_rst cycle: shift_en may be 1 (Conv1) but SRW does NOT shift.
+                    // Must gate prefetch_cnt by !srw_rst to avoid over-counting.
+                    if (!compute_en && shift_en && !srw_rst) begin
+                        if (prefetch_cnt == 3'd4)
+                            compute_en <= 1'b1;
+                        else
+                            prefetch_cnt <= prefetch_cnt + 3'd1;
+                    end
+
+                    // Layer transition
+                    if (layer_done) begin
+                        srw_rst      <= 1'b1;
+                        pool_rst     <= 1'b1;
+                        compute_en   <= 1'b0;
+                        prefetch_cnt <= 3'd0;
+                        a            <= 4'd0;
+                        t            <= 12'd0;
+                        pong_addr    <= 12'd0;
+                        bank_sel     <= ~bank_sel;
+
+                        case (layer_state)
+                            CONV1: begin
+                                layer_state <= CONV2;
+                                in_ch       <= 4'd4;
+                                in_len      <= 12'd500;
+                                out_len     <= 12'd100;
+                                nb          <= NB2;
+                                relu_en     <= 1'b0;
+                                cp_en       <= 8'h0F;
+                            end
+                            CONV2: begin
+                                layer_state <= CONV3;
+                                in_ch       <= 4'd4;
+                                in_len      <= 12'd100;
+                                out_len     <= 12'd20;
+                                nb          <= NB3;
+                                relu_en     <= 1'b0;
+                                cp_en       <= 8'hFF;
+                            end
+                            CONV3: begin
+                                layer_state <= CONV4;
+                                in_ch       <= 4'd8;
+                                in_len      <= 12'd20;
+                                out_len     <= 12'd4;
+                                nb          <= NB4;
+                                relu_en     <= 1'b1;
+                                cp_en       <= 8'hFF;
+                            end
+                            CONV4: begin
+                                layer_state  <= GAP_FC_S;
+                                cp_en        <= 8'h00;
+                                fc_sub_state <= GAP_SUB;
+                                gap_step     <= 4'd0;
+                            end
+                            default: ;
+                        endcase
+                    end
+                end
+
+                // ── GAP_FC_S ───────────────────────────────────────────
+                GAP_FC_S: begin
+                    case (fc_sub_state)
+                        GAP_SUB: begin
+                            gap_step <= gap_step + 4'd1;
+                            if (gap_step == 4'd5) begin
+                                fc_sub_state <= FC_SUB;
+                                fc_step      <= 4'd0;
+                            end
+                        end
+                        FC_SUB: begin
+                            fc_step <= fc_step + 4'd1;
+                            if (fc_step == 4'd9)
+                                fc_sub_state <= FC_FLUSH_S;
+                        end
+                        FC_FLUSH_S: begin
+                            fc_sub_state <= ARGMAX_SUB;
+                            argmax_step  <= 2'd0;
+                        end
+                        ARGMAX_SUB: begin
+                            argmax_step <= argmax_step + 2'd1;
+                            if (argmax_step == 2'd3)
+                                fc_sub_state <= DONE_SUB;
+                        end
+                        DONE_SUB: begin
+                            layer_state <= DONE_S;
+                            done        <= 1'b1;
+                            result      <= argmax_result;
+                        end
+                        default: ;
+                    endcase
+                end
+
+                // ── DONE_S ─────────────────────────────────────────────
+                // Hold result until next rst or start. Accept new start pulse
+                // to enable streaming use case (back-to-back windows without rst).
+                DONE_S: begin
+                    busy <= 1'b0;
+                    if (start) begin
+                        layer_state <= LOAD_INPUT;
+                        busy        <= 1'b1;
+                    end
+                end
+
+                default: layer_state <= IDLE;
+            endcase
+        end
+    end
+
+endmodule
+
+
+// =====================================================================
+// FILE 4/8 : hardware/RTL/gap_fc_argmax.v
+// =====================================================================
+
+// gap_fc_argmax.v
+// Sequential engine: GAP (6cy) → FC (10cy + 1 flush) → Argmax (4cy) → Done (1cy)
+// Total: 22 cycles after entry from Conv4 layer_done
+//
+// Reads Conv4 output from Ping bank (after bank_sel swap in controller).
+// ping_dout[0..7] are driven by ping_pong_sram with pong_rd_addr as read address.
+//
+// FC weights: stored in fc_w[k][i], k=0..3 output neurons, i=0..7 inputs
+// NB=0 → no rescale; FC bias omitted (b_float range tiny, round(b_float*2^0)=0).
+// If model is re-trained and FC bias rounds non-zero, add fc_bias.hex + INT32 addition here.
+
+module gap_fc_argmax (
+    input  wire        clk,
+    input  wire        rst,
+
+    // Sub-FSM control (driven by cnn_controller)
+    input  wire [2:0]  fc_sub_state,   // GAP_S/FC_S/FC_FLUSH/ARGMAX_S/DONE_S
+    input  wire [3:0]  gap_step,       // 0..5
+    input  wire [3:0]  fc_step,        // 0..9
+    input  wire [1:0]  argmax_step,    // 0..3
+
+    // Ping SRAM data (Conv4 output, 8 channels × 4 entries)
+    input  wire [63:0] ping_dout,               // packed: ping_dout[ch*8+:8], 1-cy latency
+
+    // Ping SRAM read address (to top-level → ping_pong_sram rd_addr)
+    output reg  [8:0]  gap_rd_addr,    // broadcast to all 8 channels (0..3)
+
+    // FC weight ROM init (loaded at elaboration)
+    // fc_w[k][i]: output neuron k=0..3, input i=0..7
+    // Loaded from fc_weights.hex — layout row-major [k][i]
+
+    // Outputs
+    output wire [1:0]  result          // argmax class index
+);
+
+    // ── Sub-state encoding (must match cnn_controller) ─────────────────────
+    localparam GAP_S    = 3'd1,
+               FC_S     = 3'd2,
+               FC_FLUSH = 3'd3,
+               ARGMAX_S = 3'd4,
+               DONE_S   = 3'd5;
+
+    // ── FC weight storage ──────────────────────────────────────────────────
+    // 4 output neurons × 8 inputs × INT8, 1D flat (Verilog-2001)
+    // addr = k*8 + i,  fc_weights.hex layout [k][i] row-major
+    reg signed [7:0] fc_w [0:31];
+    initial begin
+        $readmemh("fc_weights.hex", fc_w);
+    end
+
+    // ── GAP datapath ───────────────────────────────────────────────────────
+    reg signed [9:0]  gap_acc [0:7];   // 10-bit: max 4×127=508
+    reg signed [7:0]  gap_reg [0:7];   // INT8 GAP output
+
+    // gap_rd_addr: combinational from gap_step → ping_pong 1cy read latency
+    // → data arrives next cycle (step N+1) when we accumulate.
+    always @* begin
+        case (gap_step)
+            4'd0: gap_rd_addr = 9'd0;
+            4'd1: gap_rd_addr = 9'd1;
+            4'd2: gap_rd_addr = 9'd2;
+            4'd3: gap_rd_addr = 9'd3;
+            default: gap_rd_addr = 9'd0;
+        endcase
+    end
+
+    integer ch_i;
+    always @(posedge clk) begin
+        if (rst) begin
+            for (ch_i = 0; ch_i < 8; ch_i = ch_i + 1) begin
+                gap_acc[ch_i] <= 10'sd0;
+                gap_reg[ch_i] <= 8'sd0;
+            end
+        end else if (fc_sub_state == GAP_S) begin
+            case (gap_step)
+                4'd0: begin
+                    for (ch_i = 0; ch_i < 8; ch_i = ch_i + 1)
+                        gap_acc[ch_i] <= 10'sd0;
+                end
+                4'd1: begin
+                    for (ch_i = 0; ch_i < 8; ch_i = ch_i + 1)
+                        gap_acc[ch_i] <= gap_acc[ch_i]
+                                       + {{2{ping_dout[ch_i*8+7]}}, ping_dout[ch_i*8 +: 8]};
+                end
+                4'd2: begin
+                    for (ch_i = 0; ch_i < 8; ch_i = ch_i + 1)
+                        gap_acc[ch_i] <= gap_acc[ch_i]
+                                       + {{2{ping_dout[ch_i*8+7]}}, ping_dout[ch_i*8 +: 8]};
+                end
+                4'd3: begin
+                    for (ch_i = 0; ch_i < 8; ch_i = ch_i + 1)
+                        gap_acc[ch_i] <= gap_acc[ch_i]
+                                       + {{2{ping_dout[ch_i*8+7]}}, ping_dout[ch_i*8 +: 8]};
+                end
+                4'd4: begin
+                    // last sample arrives (no new addr issue)
+                    for (ch_i = 0; ch_i < 8; ch_i = ch_i + 1)
+                        gap_acc[ch_i] <= gap_acc[ch_i]
+                                       + {{2{ping_dout[ch_i*8+7]}}, ping_dout[ch_i*8 +: 8]};
+                end
+                4'd5: begin
+                    // Conv4 RELU_EN=1 → gap_acc ∈ [0,508] → gap_acc[9:2] ∈ [0,127], no clamp
+                    for (ch_i = 0; ch_i < 8; ch_i = ch_i + 1)
+                        gap_reg[ch_i] <= gap_acc[ch_i][9:2];
+                end
+                default: ;
+            endcase
+        end
+    end
+
+    // ── FC datapath ────────────────────────────────────────────────────────
+    // 4 parallel multipliers, 2-cycle pipeline (latch gap → multiply → accumulate)
+    // ROM addr: use fc_step directly as index into fc_w (combinational, no latency)
+    // — fc_w is a register array, not a synchronous ROM → 0-cycle latency
+    // Pipeline: step N latches gap[N-1], step N+1 multiplies, step N+2 accumulates
+
+    reg signed [7:0]  fc_gap_pipe;       // gap_reg[i] latched for multiplication
+    reg [2:0]         fc_w_idx;          // weight column index, tracks fc_gap_pipe
+    reg signed [15:0] fc_prod [0:3];     // multiply result (registered)
+    reg signed [31:0] fc_acc  [0:3];     // INT32 accumulator per output neuron
+    reg               prod_valid;        // fc_prod holds valid data
+
+    // FC pipeline (2-cycle latency: latch → multiply → accumulate):
+    //   step 0:  clear acc; prod_valid=0
+    //   step 1:  latch gap[0]; fc_w_idx=0
+    //   step 2:  latch gap[1]; fc_w_idx=1; multiply gap[0]×w[k][0]
+    //   step 3:  latch gap[2]; fc_w_idx=2; multiply gap[1]×w[k][1]; acc+=prod[0]
+    //   ...
+    //   step 9:  hold gap[7]; fc_w_idx=7; multiply gap[7]×w[k][7]
+    //   FC_FLUSH:                                                    acc+=prod[7]
+
+    integer k_i;
+    always @(posedge clk) begin
+        if (rst) begin
+            prod_valid  <= 1'b0;
+            fc_w_idx    <= 3'd0;
+            fc_gap_pipe <= 8'sd0;
+            for (k_i = 0; k_i < 4; k_i = k_i + 1) begin
+                fc_prod[k_i] <= 16'sd0;
+                fc_acc[k_i]  <= 32'sd0;
+            end
+        end else if (fc_sub_state == FC_S) begin
+            case (fc_step)
+                4'd0: begin
+                    prod_valid <= 1'b0;
+                    fc_w_idx   <= 3'd0;
+                    for (k_i = 0; k_i < 4; k_i = k_i + 1)
+                        fc_acc[k_i] <= 32'sd0;
+                end
+                default: begin
+                    // Stage 1: latch gap[fc_step-1] for steps 1..8; hold at step 9
+                    if (fc_step <= 4'd8) begin
+                        fc_gap_pipe <= gap_reg[fc_step - 4'd1];
+                        fc_w_idx    <= fc_step[2:0] - 3'd1;
+                    end
+
+                    // Stage 2: multiply fc_gap_pipe × fc_w[k][fc_w_idx]
+                    // fc_w_idx = (fc_step-1) from previous cycle = column for fc_gap_pipe
+                    // Index 5-bit: k_i[1:0] (2-bit) || fc_w_idx (3-bit) = k*8 + i
+                    for (k_i = 0; k_i < 4; k_i = k_i + 1)
+                        fc_prod[k_i] <= $signed(fc_gap_pipe)
+                                      * $signed(fc_w[{k_i[1:0], fc_w_idx}]);
+
+                    // Stage 3: accumulate valid products (from step 3 onward)
+                    if (prod_valid) begin
+                        for (k_i = 0; k_i < 4; k_i = k_i + 1)
+                            fc_acc[k_i] <= fc_acc[k_i]
+                                         + {{16{fc_prod[k_i][15]}}, fc_prod[k_i]};
+                    end
+
+                    prod_valid <= (fc_step >= 4'd2);
+                end
+            endcase
+        end else if (fc_sub_state == FC_FLUSH) begin
+            // Drain last product: gap[7]×w[k][7] computed at fc_step=9
+            for (k_i = 0; k_i < 4; k_i = k_i + 1)
+                fc_acc[k_i] <= fc_acc[k_i]
+                             + {{16{fc_prod[k_i][15]}}, fc_prod[k_i]};
+        end
+    end
+
+    // ── Argmax datapath ────────────────────────────────────────────────────
+    reg signed [31:0] argmax_max;
+    reg [1:0]         argmax_idx;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            argmax_max <= 32'sd0;
+            argmax_idx <= 2'b00;
+        end else if (fc_sub_state == ARGMAX_S) begin
+            case (argmax_step)
+                2'd0: begin
+                    argmax_max <= fc_acc[0];
+                    argmax_idx <= 2'b00;
+                end
+                2'd1: if ($signed(fc_acc[1]) > $signed(argmax_max)) begin
+                    argmax_max <= fc_acc[1];
+                    argmax_idx <= 2'b01;
+                end
+                2'd2: if ($signed(fc_acc[2]) > $signed(argmax_max)) begin
+                    argmax_max <= fc_acc[2];
+                    argmax_idx <= 2'b10;
+                end
+                2'd3: if ($signed(fc_acc[3]) > $signed(argmax_max)) begin
+                    argmax_max <= fc_acc[3];
+                    argmax_idx <= 2'b11;
+                end
+            endcase
+        end
+    end
+
+    // ── Outputs ────────────────────────────────────────────────────────────
+    // Note: cnn_controller tracks completion via fc_sub_state==DONE_SUB directly,
+    // so no separate `done` output needed here.
+    assign result = argmax_idx;
+
+endmodule
+
+
+// =====================================================================
+// FILE 5/8 : hardware/RTL/ping_pong_sram.v
+// =====================================================================
+
+// ping_pong_sram.v
+// 2 sets x 8 channels x 500 entries x 8-bit (pad to 512 for M10K mode 512x8/9)
+// bank_sel=0: Set-A = Ping (read), Set-B = Pong (write)
+// bank_sel=1: Set-B = Ping (read), Set-A = Pong (write)
+//
+// Read port  (Ping set): synchronous, 1-cycle latency, all 8 channels parallel
+// Write port (Pong set): synchronous, gated by we[ch] per channel
+//
+// Implementation: 16 separate mem arrays (8 ch x 2 banks), each 512x8 = 4096 bit,
+// each fits 1 M10K (10240 bit). Per-memory always block matches Quartus simple
+// dual-port template (1 mem ref, sync write + sync read into dedicated register).
+// Bank_sel mux is combinational OUTSIDE clocked block — applied to registered
+// rd_data → 1 LUT level critical path.
+
+module ping_pong_sram (
+    input  wire        clk,
+    input  wire        bank_sel,   // 0: A=Ping B=Pong | 1: B=Ping A=Pong
+
+    // Write port - Pong set (from cp_engine pool output)
+    input  wire [8:0]  wr_addr,    // 0..499
+    input  wire [63:0] din,        // 8 channels packed: din[ch*8+:8]
+    input  wire [7:0]  we,         // per-channel write enable
+
+    // Read port - Ping set (to cp_engine SRW / GAP engine)
+    input  wire [8:0]  rd_addr,    // 0..499
+    output reg  [63:0] dout        // 8 channels packed: dout[ch*8+:8]
+);
+
+    // ── 16 separate mem arrays with M10K ramstyle hint ─────────────────
+    (* ramstyle = "M10K" *) reg [7:0] mem_a_ch0 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_a_ch1 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_a_ch2 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_a_ch3 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_a_ch4 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_a_ch5 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_a_ch6 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_a_ch7 [0:511];
+
+    (* ramstyle = "M10K" *) reg [7:0] mem_b_ch0 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_b_ch1 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_b_ch2 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_b_ch3 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_b_ch4 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_b_ch5 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_b_ch6 [0:511];
+    (* ramstyle = "M10K" *) reg [7:0] mem_b_ch7 [0:511];
+
+    // ── Dedicated read-data registers (one per memory) ─────────────────
+    reg [7:0] rd_a_ch0, rd_a_ch1, rd_a_ch2, rd_a_ch3;
+    reg [7:0] rd_a_ch4, rd_a_ch5, rd_a_ch6, rd_a_ch7;
+    reg [7:0] rd_b_ch0, rd_b_ch1, rd_b_ch2, rd_b_ch3;
+    reg [7:0] rd_b_ch4, rd_b_ch5, rd_b_ch6, rd_b_ch7;
+    reg       bank_sel_d;
+
+    // ── Bank-gated write enables (precompute outside always) ───────────
+    // bank_sel=0 → Pong=B, bank_sel=1 → Pong=A
+    wire [7:0] we_a = bank_sel ? we : 8'h00;
+    wire [7:0] we_b = bank_sel ? 8'h00 : we;
+
+    // ── Per-memory always blocks: standard M10K inference template ─────
+    // Each block: 1 mem ref, sync write, sync read into dedicated register.
+    always @(posedge clk) begin
+        if (we_a[0]) mem_a_ch0[wr_addr] <= din[0*8 +: 8];
+        rd_a_ch0 <= mem_a_ch0[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_a[1]) mem_a_ch1[wr_addr] <= din[1*8 +: 8];
+        rd_a_ch1 <= mem_a_ch1[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_a[2]) mem_a_ch2[wr_addr] <= din[2*8 +: 8];
+        rd_a_ch2 <= mem_a_ch2[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_a[3]) mem_a_ch3[wr_addr] <= din[3*8 +: 8];
+        rd_a_ch3 <= mem_a_ch3[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_a[4]) mem_a_ch4[wr_addr] <= din[4*8 +: 8];
+        rd_a_ch4 <= mem_a_ch4[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_a[5]) mem_a_ch5[wr_addr] <= din[5*8 +: 8];
+        rd_a_ch5 <= mem_a_ch5[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_a[6]) mem_a_ch6[wr_addr] <= din[6*8 +: 8];
+        rd_a_ch6 <= mem_a_ch6[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_a[7]) mem_a_ch7[wr_addr] <= din[7*8 +: 8];
+        rd_a_ch7 <= mem_a_ch7[rd_addr];
+    end
+
+    always @(posedge clk) begin
+        if (we_b[0]) mem_b_ch0[wr_addr] <= din[0*8 +: 8];
+        rd_b_ch0 <= mem_b_ch0[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_b[1]) mem_b_ch1[wr_addr] <= din[1*8 +: 8];
+        rd_b_ch1 <= mem_b_ch1[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_b[2]) mem_b_ch2[wr_addr] <= din[2*8 +: 8];
+        rd_b_ch2 <= mem_b_ch2[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_b[3]) mem_b_ch3[wr_addr] <= din[3*8 +: 8];
+        rd_b_ch3 <= mem_b_ch3[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_b[4]) mem_b_ch4[wr_addr] <= din[4*8 +: 8];
+        rd_b_ch4 <= mem_b_ch4[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_b[5]) mem_b_ch5[wr_addr] <= din[5*8 +: 8];
+        rd_b_ch5 <= mem_b_ch5[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_b[6]) mem_b_ch6[wr_addr] <= din[6*8 +: 8];
+        rd_b_ch6 <= mem_b_ch6[rd_addr];
+    end
+    always @(posedge clk) begin
+        if (we_b[7]) mem_b_ch7[wr_addr] <= din[7*8 +: 8];
+        rd_b_ch7 <= mem_b_ch7[rd_addr];
+    end
+
+    // ── Bank_sel delay 1cy to align with sync-read latency ─────────────
+    always @(posedge clk) bank_sel_d <= bank_sel;
+
+    // ── Output mux: combinational, 1 LUT level (bank_sel 2:1 per bit) ──
+    always @(*) begin
+        dout[0*8 +: 8] = bank_sel_d ? rd_b_ch0 : rd_a_ch0;
+        dout[1*8 +: 8] = bank_sel_d ? rd_b_ch1 : rd_a_ch1;
+        dout[2*8 +: 8] = bank_sel_d ? rd_b_ch2 : rd_a_ch2;
+        dout[3*8 +: 8] = bank_sel_d ? rd_b_ch3 : rd_a_ch3;
+        dout[4*8 +: 8] = bank_sel_d ? rd_b_ch4 : rd_a_ch4;
+        dout[5*8 +: 8] = bank_sel_d ? rd_b_ch5 : rd_a_ch5;
+        dout[6*8 +: 8] = bank_sel_d ? rd_b_ch6 : rd_a_ch6;
+        dout[7*8 +: 8] = bank_sel_d ? rd_b_ch7 : rd_a_ch7;
+    end
+
+endmodule
+
+
+// =====================================================================
+// FILE 6/8 : hardware/RTL/input_sram.v
+// =====================================================================
+
+// input_sram.v
+// 2500 x 8-bit simple dual-port SRAM
+// Write port: from avalon_slave (HPS can write anytime)
+// Read port:  from cp_engine (1-cycle synchronous latency)
+// Target: Intel Cyclone V — infers M10K block RAM
+
+module input_sram (
+    input  wire        clk,
+
+    // Write port (from avalon_slave)
+    input  wire [11:0] wr_addr,   // 0..2499
+    input  wire [7:0]  din,
+    input  wire        we,
+
+    // Read port (from cp_engine, 1-cycle latency)
+    input  wire [11:0] rd_addr,   // 0..2499
+    output reg  [7:0]  dout
+);
+
+    reg [7:0] mem [0:2499];
+
+    // Write
+    always @(posedge clk) begin
+        if (we)
+            mem[wr_addr] <= din;
+    end
+
+    // Read (synchronous, 1-cycle latency)
+    always @(posedge clk) begin
+        dout <= mem[rd_addr];
+    end
+
+endmodule
+
+
+// =====================================================================
+// FILE 7/8 : hardware/RTL/avalon_slave.v
+// =====================================================================
+
+// avalon_slave.v
+// Avalon-MM slave interface for ECG accelerator on DE10-Standard.
+// Bridges HPS Lightweight bridge to: Input SRAM write port + control/status registers.
+
+module avalon_slave (
+    input  wire        clk,
+    input  wire        rst_n,
+
+    // Avalon-MM Slave
+    input  wire [4:0]  avs_address,
+    input  wire        avs_write,
+    input  wire        avs_read,
+    input  wire [31:0] avs_writedata,
+    output reg  [31:0] avs_readdata,
+
+    // Input SRAM write port
+    output reg  [11:0] sram_wr_addr,
+    output reg  [7:0]  sram_din,
+    output reg         sram_we,
+
+    // Control/status
+    output reg         start,
+    input  wire        busy,
+    input  wire        done,
+    input  wire [1:0]  result
+);
+
+    reg done_latched;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            done_latched <= 1'b0;
+            start        <= 1'b0;
+            sram_we      <= 1'b0;
+            sram_din     <= 8'h00;
+            sram_wr_addr <= 12'h000;
+            avs_readdata <= 32'h0;
+        end else begin
+            start   <= 1'b0;
+            sram_we <= 1'b0;
+
+            if (done)
+                done_latched <= 1'b1;
+
+            if (avs_write)
+                case (avs_address)
+                    5'h00: sram_din     <= avs_writedata[7:0];
+                    5'h01: sram_wr_addr <= avs_writedata[11:0];
+                    5'h02: sram_we      <= avs_writedata[0];
+                    5'h03: begin
+                        start        <= avs_writedata[0];
+                        done_latched <= 1'b0;
+                    end
+                endcase
+
+            if (avs_read)
+                case (avs_address)
+                    5'h04: avs_readdata <= {30'b0, done_latched, busy};
+                    5'h05: avs_readdata <= {30'b0, result};
+                    default: avs_readdata <= 32'b0;
+                endcase
+        end
+    end
+
+endmodule
+
+
+// =====================================================================
+// FILE 8/8 : hardware/RTL/ecg_accelerator_top.v
+// =====================================================================
+
+// ecg_accelerator_top.v
+// Top-level: wires all sub-modules together.
+//
+// Modules instantiated:
+//   avalon_slave      — Avalon-MM bridge (HPS ↔ accelerator)
+//   input_sram        — 2500×8b, stores raw ECG input from HPS
+//   ping_pong_sram    — 2 sets × 8 banks × 500 entries, inter-layer feature maps
+//   cp_engine         — 8 CP blocks (Conv1..4)
+//   gap_fc_argmax     — GAP/FC/Argmax post-processing
+//   cnn_controller    — Unified FSM
+
+module ecg_accelerator_top (
+    input  wire        clk,
+    input  wire        rst,         // synchronous reset (active high, for RTL)
+    input  wire        rst_n,       // async active-low reset (for avalon_slave)
+
+    // Avalon-MM Slave port (from HPS Lightweight bridge)
+    input  wire [4:0]  avs_address,
+    input  wire        avs_write,
+    input  wire        avs_read,
+    input  wire [31:0] avs_writedata,
+    output wire [31:0] avs_readdata
+);
+
+    // ── Controller outputs ─────────────────────────────────────────────
+    wire [3:0]  ctrl_a;
+    wire [11:0] ctrl_t;
+    wire        ctrl_shift_en;
+    wire        ctrl_srw_rst;
+    wire        ctrl_compute_en;
+    wire [3:0]  ctrl_in_ch;
+    wire [11:0] ctrl_in_len;
+    wire [4:0]  ctrl_nb;
+    wire        ctrl_relu_en;
+    wire [7:0]  ctrl_cp_en;
+    wire        ctrl_bank_sel;
+    wire [11:0] ctrl_pong_addr;
+    wire        ctrl_pool_rst;
+    wire [2:0]  ctrl_fc_sub_state;
+    wire [3:0]  ctrl_gap_step;
+    wire [3:0]  ctrl_fc_step;
+    wire [1:0]  ctrl_argmax_step;
+    wire [2:0]  ctrl_layer_state;
+    wire        ctrl_busy;
+    wire        ctrl_done;
+    wire [1:0]  ctrl_result;
+
+    // ── Avalon slave outputs ───────────────────────────────────────────
+    wire [11:0] avs_sram_wr_addr;
+    wire [7:0]  avs_sram_din;
+    wire        avs_sram_we;
+    wire        avs_start;
+
+    // ── Input SRAM ─────────────────────────────────────────────────────
+    wire [7:0]  input_sram_dout;
+
+    // ── Ping-Pong SRAM ─────────────────────────────────────────────────
+    wire [63:0] pp_dout;            // Ping output packed: pp_dout[ch*8+:8]
+
+    // ── CP engine ──────────────────────────────────────────────────────
+    wire        cp_pool_write;      // from cp_engine (representative ch0)
+    wire [63:0] cp_pong_din;        // packed: cp_pong_din[ch*8+:8]
+    wire [7:0]  cp_pong_we;
+    wire [11:0] cp_sram_rd_addr;
+
+    // ── GAP/FC/Argmax ──────────────────────────────────────────────────
+    wire [8:0]  gap_rd_addr;
+    wire [1:0]  gap_result;
+
+    // ── Pool write: cp_engine ch0 pool_write feeds controller ──────────
+    // All active cp_blocks write simultaneously — ch0 is representative.
+    // cp_engine exposes pong_we[0] as the representative pool_write signal.
+    assign cp_pool_write = cp_pong_we[0];
+
+    // ── avalon_slave ───────────────────────────────────────────────────
+    avalon_slave u_avs (
+        .clk          (clk),
+        .rst_n        (rst_n),
+        .avs_address  (avs_address),
+        .avs_write    (avs_write),
+        .avs_read     (avs_read),
+        .avs_writedata(avs_writedata),
+        .avs_readdata (avs_readdata),
+        .sram_wr_addr (avs_sram_wr_addr),
+        .sram_din     (avs_sram_din),
+        .sram_we      (avs_sram_we),
+        .start        (avs_start),
+        .busy         (ctrl_busy),
+        .done         (ctrl_done),
+        .result       (ctrl_result)
+    );
+
+    // ── input_sram ─────────────────────────────────────────────────────
+    input_sram u_isram (
+        .clk    (clk),
+        .wr_addr(avs_sram_wr_addr),
+        .din    (avs_sram_din),
+        .we     (avs_sram_we),
+        .rd_addr(cp_sram_rd_addr[11:0]),
+        .dout   (input_sram_dout)
+    );
+
+    // ── ping_pong_sram ─────────────────────────────────────────────────
+    // Read address: cp_engine during CONV1..4, gap_fc_argmax during GAP_FC_S
+    // Use gap_rd_addr when in GAP_FC_S state (layer_state == 3'd6), else cp_sram_rd_addr
+    wire [8:0] pp_rd_addr = (ctrl_layer_state == 3'd6) ? gap_rd_addr
+                                                        : cp_sram_rd_addr[8:0];
+
+    ping_pong_sram u_pp (
+        .clk     (clk),
+        .bank_sel(ctrl_bank_sel),
+        .wr_addr (ctrl_pong_addr[8:0]),
+        .din     (cp_pong_din),
+        .we      (cp_pong_we),
+        .rd_addr (pp_rd_addr),
+        .dout    (pp_dout)
+    );
+
+    // ── cp_engine ──────────────────────────────────────────────────────
+    cp_engine u_cpe (
+        .clk              (clk),
+        .rst              (rst),
+        .a                (ctrl_a),
+        .in_ch            (ctrl_in_ch),
+        .in_len           (ctrl_in_len),
+        .shift_en         (ctrl_shift_en),
+        .srw_rst          (ctrl_srw_rst),
+        .compute_en       (ctrl_compute_en),
+        .nb               (ctrl_nb),
+        .relu_en          (ctrl_relu_en),
+        .cp_en            (ctrl_cp_en),
+        .layer_state      (ctrl_layer_state),
+        .pool_rst         (ctrl_pool_rst),
+        .input_sram_dout  (input_sram_dout),
+        .ping_dout        (pp_dout),
+        .pong_din         (cp_pong_din),
+        .pong_we          (cp_pong_we),
+        .sram_rd_addr     (cp_sram_rd_addr),
+        .sram_rd_addr_in  (ctrl_t)
+    );
+
+    // ── gap_fc_argmax ──────────────────────────────────────────────────
+    gap_fc_argmax u_gfa (
+        .clk          (clk),
+        .rst          (rst),
+        .fc_sub_state (ctrl_fc_sub_state),
+        .gap_step     (ctrl_gap_step),
+        .fc_step      (ctrl_fc_step),
+        .argmax_step  (ctrl_argmax_step),
+        .ping_dout    (pp_dout),
+        .gap_rd_addr  (gap_rd_addr),
+        .result       (gap_result)
+    );
+
+    // ── cnn_controller ─────────────────────────────────────────────────
+    cnn_controller u_ctrl (
+        .clk          (clk),
+        .rst          (rst),
+        .start        (avs_start),
+        .pool_write   (cp_pool_write),
+        .a            (ctrl_a),
+        .t            (ctrl_t),
+        .shift_en     (ctrl_shift_en),
+        .srw_rst      (ctrl_srw_rst),
+        .compute_en   (ctrl_compute_en),
+        .in_ch        (ctrl_in_ch),
+        .in_len       (ctrl_in_len),
+        .nb           (ctrl_nb),
+        .relu_en      (ctrl_relu_en),
+        .cp_en        (ctrl_cp_en),
+        .bank_sel     (ctrl_bank_sel),
+        .pong_addr    (ctrl_pong_addr),
+        .pool_rst     (ctrl_pool_rst),
+        .fc_sub_state (ctrl_fc_sub_state),
+        .gap_step     (ctrl_gap_step),
+        .fc_step      (ctrl_fc_step),
+        .argmax_step  (ctrl_argmax_step),
+        .argmax_result(gap_result),
+        .layer_state  (ctrl_layer_state),
+        .busy         (ctrl_busy),
+        .done         (ctrl_done),
+        .result       (ctrl_result)
+    );
+
+endmodule

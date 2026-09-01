@@ -63,7 +63,7 @@ module cnn_controller (
                DONE_SUB   = 3'd5;
 
     // ── Per-layer topology (hard-coded Chapman — ROM single-load build) ─────
-    // Fixed topology baked in: in_ch = 1/4/4/8, cp_en = 0F/0F/FF/FF, nb = 8/6/6/7
+    // Fixed topology baked in: in_ch = 1/4/4/8, cp_en = 0F/0F/FF/FF, nb = 8/7/6/7
     // for Conv1..4. (Production uses runtime cfg_* ports; this ROM variant does not.)
     // Same accessor signatures as before so all call sites are unchanged.
     function [3:0] cfg_in_ch_of; input [1:0] li;
@@ -75,7 +75,7 @@ module cnn_controller (
                   2'd2: cfg_cp_en_of = 8'hFF; default: cfg_cp_en_of = 8'hFF; endcase
     endfunction
     function [3:0] cfg_nb_of;    input [1:0] li;
-        case (li) 2'd0: cfg_nb_of = 4'd8; 2'd1: cfg_nb_of = 4'd6;
+        case (li) 2'd0: cfg_nb_of = 4'd8; 2'd1: cfg_nb_of = 4'd7;
                   2'd2: cfg_nb_of = 4'd6; default: cfg_nb_of = 4'd7; endcase
     endfunction
 

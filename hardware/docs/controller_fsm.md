@@ -27,13 +27,15 @@ wire layer_done = (pong_addr == out_len - 12'd1) && pool_write;
 State    in_ch  out_len  nb   relu_en  cp_en   bank_sel
 ──────────────────────────────────────────────────────────
 CONV1      1      500    8      0      8'h0F     0
-CONV2      4      100    6      0      8'h0F     1
+CONV2      4      100    7      0      8'h0F     1
 CONV3      4       20    6      0      8'hFF     0
 CONV4      8        4    7      1      8'hFF     1
 GAP_FC_S   —        —    —      —      8'h00     —
 ```
 
-**NB constants:** `NB1=5'd8, NB2=5'd6, NB3=5'd6, NB4=5'd7`
+**NB constants (ningba, re-train 2026-07-28):** `NB1=4'd8, NB2=4'd7, NB3=4'd6, NB4=4'd7`
+— via `cfg_nb_of(li)` in `cnn_controller.v` (ROM single-load build; Chapman cũ dùng NB2=6,
+xem [PROJECT.md](../../PROJECT.md) mục "nb per layer").
 
 ## Derived Signals
 
@@ -106,6 +108,10 @@ Cycle N+...: compute_en=1 sau khi đếm đủ 5 SRW shifts (prefetch_cnt 0→1�
 
 **Note**: cp_block gates ACC bằng `a_d5/ce_d5` (5-stage delay). Pipeline thực: mux_comb → mux_s1 → prod → sum01,23 → sum0123 → tree_out (5 registers); acc register update edge ngay sau tree → cần ce_d5 để align.
 
+> `acc_final_r`/`acc_final_v` (S5b) đã bị gộp vào `S_bias` (`biased`/`bias_valid`,
+> qua `out_valid_d1`) — xem [cp_pipeline.md](cp_pipeline.md) mục "round_add". Bảng
+> dưới dùng tên gọi khái niệm cũ (out_valid) vẫn đúng, chỉ tên thanh ghi nội bộ đổi.
+
 ## Per-Layer Counter Timing
 
 Bảng dưới hiển thị `a` tại cycle drive (cp_engine input) cùng cột `a_d5` đến cp_block ở edge sau 5 cycles. ACC update (RST/ACC/OUT) xảy ra tại cp_block khi `a_d5` đạt giá trị tương ứng — không nằm cùng cycle drive `a`.
@@ -114,7 +120,7 @@ Bảng dưới hiển thị `a` tại cycle drive (cp_engine input) cùng cột 
 
 ```
 Mỗi cycle: shift_en=1 (a luôn = 0 = in_ch-1)
-a_d5 = 0 mỗi cycle → mỗi edge cp_block: RST acc + acc_final_v=1 (out_valid)
+a_d5 = 0 mỗi cycle → mỗi edge cp_block: RST acc + out_valid=1 mỗi cycle
 pool_write: pulse mỗi 5 cycles (5 relu_v)
 ```
 
@@ -125,7 +131,7 @@ Cycle (drive)  a  shift_en  | edge cp_block (drive +5) a_d5  ACC
  4k+0          0     -      |                            0    RST
  4k+1          1     -      |                            1    ACC
  4k+2          2     -      |                            2    ACC
- 4k+3          3     ↑      |                            3    OUT → out_valid → acc_final_v
+ 4k+3          3     ↑      |                            3    OUT → out_valid
 ```
 
 ### Conv4 — IN_CH=8 (chuẩn tham chiếu)
@@ -139,7 +145,7 @@ Cycle (drive)  a  shift_en  | edge cp_block (drive +5) a_d5  ACC
  8k+4          4     -      |                            4    ACC
  8k+5          5     -      |                            5    ACC
  8k+6          6     -      |                            6    ACC
- 8k+7          7     ↑      |                            7    OUT → out_valid → acc_final_v
+ 8k+7          7     ↑      |                            7    OUT → out_valid
 ```
 
 ## GAP_FC Sub-States

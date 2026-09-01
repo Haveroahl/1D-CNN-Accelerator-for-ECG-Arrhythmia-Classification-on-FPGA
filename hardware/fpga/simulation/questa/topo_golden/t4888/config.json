@@ -1,0 +1,41 @@
+{
+  "tag": "t4888",
+  "out_ch": [
+    4,
+    8,
+    8,
+    8
+  ],
+  "in_ch": {
+    "conv1": 1,
+    "conv2": 4,
+    "conv3": 8,
+    "conv4": 8
+  },
+  "cp_en": {
+    "conv1": 15,
+    "conv2": 255,
+    "conv3": 255,
+    "conv4": 255
+  },
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7
+  },
+  "base": {
+    "conv1": 0,
+    "conv2": 1,
+    "conv3": 5,
+    "conv4": 13
+  },
+  "total_words": 21,
+  "expected_argmax": 2,
+  "logits": [
+    -331,
+    -560,
+    473,
+    74
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "tag": "L1v1",
+  "out_ch": [
+    4,
+    1,
+    4,
+    4
+  ],
+  "in_ch": {
+    "conv1": 1,
+    "conv2": 4,
+    "conv3": 1,
+    "conv4": 4
+  },
+  "cp_en": {
+    "conv1": 15,
+    "conv2": 1,
+    "conv3": 15,
+    "conv4": 15
+  },
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7
+  },
+  "base": {
+    "conv1": 0,
+    "conv2": 1,
+    "conv3": 5,
+    "conv4": 6
+  },
+  "total_words": 10,
+  "expected_argmax": 0,
+  "logits": [
+    466,
+    -681,
+    129,
+    -443
+  ]
+}

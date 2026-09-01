@@ -1,0 +1,9 @@
+QUARTUS_VERSION = "25.1"
+
+# -------------------------------------------------------------------------- #
+# DE0-Nano (Cyclone IV E EP4CE22F17C6) port of the ECG accelerator.
+# Mirror of ../fpga/ecg_accelerator_top.qpf retargeted for a low-leakage die,
+# to obtain an honest power/resource number. See README_DE0.md.
+# -------------------------------------------------------------------------- #
+
+PROJECT_REVISION = "ecg_de0_top"

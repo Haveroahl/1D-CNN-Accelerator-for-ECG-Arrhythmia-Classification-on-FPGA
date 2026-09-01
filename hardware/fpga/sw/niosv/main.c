@@ -25,6 +25,19 @@
 #include "system.h"      /* generated base-address macros from BSP     */
 #include "ecg_samples.h" /* ecg_data[N_SAMPLES][SAMPLE_LEN], ecg_golden[] */
 
+/* Pure-C INT8 CNN inference (cnn_sw.c) — bit-exact software twin used to
+ * benchmark the accelerator's speedup on the same soft-core clock. */
+extern int cnn_sw_infer(const signed char *ecg);
+
+/* Read the RISC-V machine cycle counter (CSR 0xB00). Nios V/m increments
+ * mcycle once per core clock, so cycle deltas are a fair same-clock metric. */
+static inline unsigned read_mcycle(void)
+{
+    unsigned c;
+    __asm__ volatile ("csrr %0, mcycle" : "=r"(c));
+    return c;
+}
+
 /* BSP system.h defines ECG_CORE_0_BASE (= 0xa0040) for the Qsys instance
  * ecg_core_0. Use it directly; fall back to the literal if absent. */
 #ifdef ECG_CORE_0_BASE
@@ -71,25 +84,61 @@ static int run_inference(void)
     return (int)(IORD_32DIRECT(ECG_BASE, A_RES) & 0x3u);
 }
 
+/* Accelerator compute-only latency, measured deterministically in the RTL
+ * testbench (tb_top.v run_inference: START->done = 5216 core clocks). Same
+ * 100 MHz clock domain as the Nios V core in nios_system, so cycle counts are
+ * directly comparable. This is the pure inference cost, excluding the CPU's
+ * byte-by-byte Avalon SRAM load (which is a CPU cost, not the accelerator's). */
+#define HW_COMPUTE_CYCLES 5216u
+
+/* Samples to benchmark. The software CNN has a data-independent control flow
+ * (every conv position and tap is always evaluated), so its cycle count is
+ * deterministic and one sample is representative. Keep this at 1 for RTL
+ * simulation: one software inference already costs tens of ms of simulated
+ * time, and Questa needs ~20 min of wall-clock per simulated 20 ms. */
+#ifndef BENCH_SAMPLES
+#define BENCH_SAMPLES 1
+#endif
+
 int main(void)
 {
-    int s, pred, correct = 0;
+    int s, pred_hw, pred_sw, correct = 0, sw_ok = 0;
+    unsigned c0, sw_cyc, sw_sum = 0;
 
-    printf("\n=== ECG CNN accelerator on Nios V/m (Phase D) ===\n");
+    printf("\n=== ECG CNN: software (Nios V/m) vs accelerator ===\n");
     printf("ECG_BASE = 0x%08x\n", (unsigned)ECG_BASE);
 
-    for (s = 0; s < N_SAMPLES; s++) {
+    for (s = 0; s < BENCH_SAMPLES; s++) {
+        /* --- Software INT8 CNN on the Nios V core, timed by mcycle --- */
+        c0 = read_mcycle();
+        pred_sw = cnn_sw_infer(ecg_data[s]);
+        sw_cyc = read_mcycle() - c0;
+        sw_sum += sw_cyc;
+
+        /* --- Accelerator: drive over Avalon, verify same class --- */
         load_ecg(ecg_data[s]);
-        pred = run_inference();
-        printf("sample %d : pred=%d golden=%d %s\n",
-               s, pred, ecg_golden[s],
-               (pred == ecg_golden[s]) ? "OK" : "MISMATCH");
-        if (pred == ecg_golden[s])
-            correct++;
+        pred_hw = run_inference();
+
+        printf("sample %d : sw=%d hw=%d golden=%d  sw_cycles=%u  %s%s\n",
+               s, pred_sw, pred_hw, ecg_golden[s], sw_cyc,
+               (pred_hw == ecg_golden[s]) ? "HW_OK" : "HW_MISMATCH",
+               (pred_sw == pred_hw) ? " SW==HW" : " SW!=HW");
+        if (pred_hw == ecg_golden[s]) correct++;
+        if (pred_sw == pred_hw)       sw_ok++;
     }
 
+    unsigned sw_avg = sw_sum / BENCH_SAMPLES;
     printf("---------------------------------------------\n");
-    printf("Result: %d/%d match golden\n", correct, N_SAMPLES);
+    printf("# ECG CNN - Software (Nios V/m)  ==== Executed cycles: %u\n", sw_avg);
+    printf("# ECG CNN - Accelerator          ==== Executed cycles: %u\n",
+           (unsigned)HW_COMPUTE_CYCLES);
+    printf("# Speedup (SW/HW)                ==== %u.%02ux\n",
+           sw_avg / HW_COMPUTE_CYCLES,
+           (unsigned)(((unsigned long long)(sw_avg % HW_COMPUTE_CYCLES) * 100)
+                      / HW_COMPUTE_CYCLES));
+    printf("---------------------------------------------\n");
+    printf("Result: HW %d/%d match golden ; SW==HW %d/%d\n",
+           correct, BENCH_SAMPLES, sw_ok, BENCH_SAMPLES);
 
     while (1) { }   /* halt */
     return 0;

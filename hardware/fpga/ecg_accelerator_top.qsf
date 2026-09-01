@@ -129,11 +129,22 @@ set_global_assignment -name EDA_TEST_BENCH_FILE ../testbench/tb_cp_block.v -sect
 set_global_assignment -name EDA_TEST_BENCH_FILE ../testbench/tb_layer.v -section_id tb_layer
 set_global_assignment -name EDA_TEST_BENCH_FILE ../testbench/tb_top.v -section_id tb_top
 set_global_assignment -name EDA_TEST_BENCH_FILE ../testbench/tb_top_probe.v -section_id tb_top_probe
+# ── PowerPlay activity input ────────────────────────────────────────────────
+# ecg_power.vcd (tb_power_vcd.v) chua DUNG cua so suy luan: 5219 chu ky tu
+# START den done, dump TAT trong giai doan nap 2500 byte qua Avalon.
+#
+# Ban cu nap tb_top.vcd tu 0 ns — gom ca reset + nhieu test case nap SRAM, luc
+# do loi tinh toan DUNG YEN. Toggle rate trung binh bi pha loang -> power bao
+# THAP hon thuc te va Quartus ha "Power Estimation Confidence" xuong Low.
+# VCD moi mo ta dung che do "accelerator dang lam viec", la che do can cho so
+# energy/inference.
 set_global_assignment -name POWER_USE_INPUT_FILES ON
-set_global_assignment -name POWER_INPUT_FILE_NAME simulation/questa/tb_top.vcd -section_id tb_top_vcd
-set_global_assignment -name POWER_VCD_FILE_START_TIME "0 ns" -section_id tb_top_vcd
-set_global_assignment -name POWER_INPUT_FILE_TYPE VCD -section_id tb_top_vcd
-set_instance_assignment -name POWER_READ_INPUT_FILE tb_top_vcd -to |
+set_global_assignment -name POWER_INPUT_FILE_NAME simulation/questa/ecg_power.vcd -section_id ecg_power_vcd
+set_global_assignment -name POWER_VCD_FILE_START_TIME "0 ns" -section_id ecg_power_vcd
+set_global_assignment -name POWER_INPUT_FILE_TYPE VCD -section_id ecg_power_vcd
+set_instance_assignment -name POWER_READ_INPUT_FILE ecg_power_vcd -to |
 set_global_assignment -name EDA_GENERATE_FUNCTIONAL_NETLIST OFF -section_id eda_simulation
 set_global_assignment -name VHDL_SHOW_LMF_MAPPING_MESSAGES OFF
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
+set_global_assignment -name POWER_DEFAULT_TOGGLE_RATE 12.5%
+set_global_assignment -name POWER_DEFAULT_INPUT_IO_TOGGLE_RATE 12.5%

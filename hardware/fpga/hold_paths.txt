@@ -1,0 +1,269 @@
+----------------
+; Command Info ;
+----------------
+Report Timing: Found 3 hold paths (2 violated).  Worst case slack is -0.100 
+
+Tcl Command:
+    report_timing -hold -file hold_paths.txt -npaths 3 -detail full_path
+
+Options:
+    -hold 
+    -npaths 3 
+    -detail full_path 
+    -file {hold_paths.txt} 
+
+Delay Model:
+    Slow 1100mV 85C Model
+
++--------------------------------------------------------------------------------------------------------------------------------------+
+; Summary of Paths                                                                                                                     ;
++--------+------------------+------------------------------------+--------------+-------------+--------------+------------+------------+
+; Slack  ; From Node        ; To Node                            ; Launch Clock ; Latch Clock ; Relationship ; Clock Skew ; Data Delay ;
++--------+------------------+------------------------------------+--------------+-------------+--------------+------------+------------+
+; -0.100 ; avs_writedata[0] ; avalon_slave:u_avs|sram_wr_addr[0] ; clk          ; clk         ; 0.000        ; 3.758      ; 3.458      ;
+; -0.058 ; avs_writedata[5] ; avalon_slave:u_avs|sram_din[5]     ; clk          ; clk         ; 0.000        ; 3.767      ; 3.509      ;
+; 0.069  ; avs_writedata[0] ; avalon_slave:u_avs|sram_din[0]     ; clk          ; clk         ; 0.000        ; 3.771      ; 3.640      ;
++--------+------------------+------------------------------------+--------------+-------------+--------------+------------+------------+
+
+Path #1: Hold slack is -0.100 (VIOLATED)
+===============================================================================
++---------------------------------------------------------+
+; Path Summary                                            ;
++--------------------+------------------------------------+
+; Property           ; Value                              ;
++--------------------+------------------------------------+
+; From Node          ; avs_writedata[0]                   ;
+; To Node            ; avalon_slave:u_avs|sram_wr_addr[0] ;
+; Launch Clock       ; clk                                ;
+; Latch Clock        ; clk                                ;
+; Data Arrival Time  ; 3.658                              ;
+; Data Required Time ; 3.758                              ;
+; Slack              ; -0.100 (VIOLATED)                  ;
++--------------------+------------------------------------+
+
++--------------------------------------------------------------------------------------+
+; Statistics                                                                           ;
++---------------------------+-------+-------+-------------+------------+-------+-------+
+; Property                  ; Value ; Count ; Total Delay ; % of Total ; Min   ; Max   ;
++---------------------------+-------+-------+-------------+------------+-------+-------+
+; Hold Relationship         ; 0.000 ;       ;             ;            ;       ;       ;
+; Clock Skew                ; 3.758 ;       ;             ;            ;       ;       ;
+; Data Delay                ; 3.458 ;       ;             ;            ;       ;       ;
+; Number of Logic Levels    ;       ; 1     ;             ;            ;       ;       ;
+; Physical Delays           ;       ;       ;             ;            ;       ;       ;
+;  Arrival Path             ;       ;       ;             ;            ;       ;       ;
+;   Clock                   ;       ;       ;             ;            ;       ;       ;
+;    Clock Network (Lumped) ;       ; 1     ; 0.000       ;            ; 0.000 ; 0.000 ;
+;   Data                    ;       ;       ;             ;            ;       ;       ;
+;    IC                     ;       ; 2     ; 2.580       ; 75         ; 0.000 ; 2.580 ;
+;    Cell                   ;       ; 2     ; 0.878       ; 25         ; 0.238 ; 0.640 ;
+;  Required Path            ;       ;       ;             ;            ;       ;       ;
+;   Clock                   ;       ;       ;             ;            ;       ;       ;
+;    IC                     ;       ; 3     ; 2.380       ; 63         ; 0.000 ; 2.033 ;
+;    Cell                   ;       ; 3     ; 1.378       ; 37         ; 0.273 ; 0.661 ;
++---------------------------+-------+-------+-------------+------------+-------+-------+
+Note: Negative delays are omitted from totals when calculating percentages
+
++-------------------------------------------------------------------------------------------------+
+; Data Arrival Path                                                                               ;
++---------+---------+----+------+--------+-------------------+------------------------------------+
+; Total   ; Incr    ; RF ; Type ; Fanout ; Location          ; Element                            ;
++---------+---------+----+------+--------+-------------------+------------------------------------+
+; 0.000   ; 0.000   ;    ;      ;        ;                   ; launch edge time                   ;
+; 0.000   ; 0.000   ;    ;      ;        ;                   ; clock path                         ;
+;   0.000 ;   0.000 ; R  ;      ;        ;                   ; clock network delay                ;
+; 0.200   ; 0.200   ; R  ; iExt ; 1      ; PIN_AF18          ; avs_writedata[0]                   ;
+; 3.658   ; 3.458   ;    ;      ;        ;                   ; data path                          ;
+;   0.200 ;   0.000 ; RR ; IC   ; 1      ; IOIBUF_X50_Y0_N58 ; avs_writedata[0]~input|i           ;
+;   0.840 ;   0.640 ; RR ; CELL ; 4      ; IOIBUF_X50_Y0_N58 ; avs_writedata[0]~input|o           ;
+;   3.420 ;   2.580 ; RR ; IC   ; 1      ; FF_X46_Y4_N1      ; u_avs|sram_wr_addr[0]|asdata       ;
+;   3.658 ;   0.238 ; RR ; CELL ; 1      ; FF_X46_Y4_N1      ; avalon_slave:u_avs|sram_wr_addr[0] ;
++---------+---------+----+------+--------+-------------------+------------------------------------+
+
++------------------------------------------------------------------------------------------------+
+; Data Required Path                                                                             ;
++---------+---------+----+------+--------+------------------+------------------------------------+
+; Total   ; Incr    ; RF ; Type ; Fanout ; Location         ; Element                            ;
++---------+---------+----+------+--------+------------------+------------------------------------+
+; 0.000   ; 0.000   ;    ;      ;        ;                  ; latch edge time                    ;
+; 3.758   ; 3.758   ;    ;      ;        ;                  ; clock path                         ;
+;   0.000 ;   0.000 ;    ;      ;        ;                  ; source latency                     ;
+;   0.000 ;   0.000 ;    ;      ; 1      ; PIN_AF14         ; clk                                ;
+;   0.000 ;   0.000 ; RR ; IC   ; 1      ; IOIBUF_X32_Y0_N1 ; clk~input|i                        ;
+;   0.661 ;   0.661 ; RR ; CELL ; 1      ; IOIBUF_X32_Y0_N1 ; clk~input|o                        ;
+;   1.008 ;   0.347 ; RR ; IC   ; 1      ; CLKCTRL_G4       ; clk~inputCLKENA0|inclk             ;
+;   1.281 ;   0.273 ; RR ; CELL ; 2950   ; CLKCTRL_G4       ; clk~inputCLKENA0|outclk            ;
+;   3.314 ;   2.033 ; RR ; IC   ; 1      ; FF_X46_Y4_N1     ; u_avs|sram_wr_addr[0]|clk          ;
+;   3.758 ;   0.444 ; RR ; CELL ; 1      ; FF_X46_Y4_N1     ; avalon_slave:u_avs|sram_wr_addr[0] ;
+; 3.758   ; 0.000   ;    ;      ;        ;                  ; clock uncertainty                  ;
+; 3.758   ; 0.000   ;    ; uTh  ; 1      ; FF_X46_Y4_N1     ; avalon_slave:u_avs|sram_wr_addr[0] ;
++---------+---------+----+------+--------+------------------+------------------------------------+
+
+----------------------------
+; Extra Fitter Information ;
+----------------------------
+HTML report is unavailable in plain text report export.
+
+
+Path #2: Hold slack is -0.058 (VIOLATED)
+===============================================================================
++-----------------------------------------------------+
+; Path Summary                                        ;
++--------------------+--------------------------------+
+; Property           ; Value                          ;
++--------------------+--------------------------------+
+; From Node          ; avs_writedata[5]               ;
+; To Node            ; avalon_slave:u_avs|sram_din[5] ;
+; Launch Clock       ; clk                            ;
+; Latch Clock        ; clk                            ;
+; Data Arrival Time  ; 3.709                          ;
+; Data Required Time ; 3.767                          ;
+; Slack              ; -0.058 (VIOLATED)              ;
++--------------------+--------------------------------+
+
++--------------------------------------------------------------------------------------+
+; Statistics                                                                           ;
++---------------------------+-------+-------+-------------+------------+-------+-------+
+; Property                  ; Value ; Count ; Total Delay ; % of Total ; Min   ; Max   ;
++---------------------------+-------+-------+-------------+------------+-------+-------+
+; Hold Relationship         ; 0.000 ;       ;             ;            ;       ;       ;
+; Clock Skew                ; 3.767 ;       ;             ;            ;       ;       ;
+; Data Delay                ; 3.509 ;       ;             ;            ;       ;       ;
+; Number of Logic Levels    ;       ; 2     ;             ;            ;       ;       ;
+; Physical Delays           ;       ;       ;             ;            ;       ;       ;
+;  Arrival Path             ;       ;       ;             ;            ;       ;       ;
+;   Clock                   ;       ;       ;             ;            ;       ;       ;
+;    Clock Network (Lumped) ;       ; 1     ; 0.000       ;            ; 0.000 ; 0.000 ;
+;   Data                    ;       ;       ;             ;            ;       ;       ;
+;    IC                     ;       ; 3     ; 2.670       ; 76         ; 0.000 ; 2.670 ;
+;    Cell                   ;       ; 3     ; 0.839       ; 24         ; 0.049 ; 0.733 ;
+;  Required Path            ;       ;       ;             ;            ;       ;       ;
+;   Clock                   ;       ;       ;             ;            ;       ;       ;
+;    IC                     ;       ; 3     ; 2.380       ; 63         ; 0.000 ; 2.033 ;
+;    Cell                   ;       ; 3     ; 1.387       ; 37         ; 0.273 ; 0.661 ;
++---------------------------+-------+-------+-------------+------------+-------+-------+
+Note: Negative delays are omitted from totals when calculating percentages
+
++-------------------------------------------------------------------------------------------------+
+; Data Arrival Path                                                                               ;
++---------+---------+----+------+--------+---------------------+----------------------------------+
+; Total   ; Incr    ; RF ; Type ; Fanout ; Location            ; Element                          ;
++---------+---------+----+------+--------+---------------------+----------------------------------+
+; 0.000   ; 0.000   ;    ;      ;        ;                     ; launch edge time                 ;
+; 0.000   ; 0.000   ;    ;      ;        ;                     ; clock path                       ;
+;   0.000 ;   0.000 ; R  ;      ;        ;                     ; clock network delay              ;
+; 0.200   ; 0.200   ; R  ; iExt ; 1      ; PIN_AJ16            ; avs_writedata[5]                 ;
+; 3.709   ; 3.509   ;    ;      ;        ;                     ; data path                        ;
+;   0.200 ;   0.000 ; RR ; IC   ; 1      ; IOIBUF_X54_Y0_N35   ; avs_writedata[5]~input|i         ;
+;   0.933 ;   0.733 ; RR ; CELL ; 2      ; IOIBUF_X54_Y0_N35   ; avs_writedata[5]~input|o         ;
+;   3.603 ;   2.670 ; RR ; IC   ; 1      ; MLABCELL_X47_Y4_N12 ; u_avs|sram_din[5]~feeder|dataf   ;
+;   3.652 ;   0.049 ; RR ; CELL ; 1      ; MLABCELL_X47_Y4_N12 ; u_avs|sram_din[5]~feeder|combout ;
+;   3.652 ;   0.000 ; RR ; IC   ; 1      ; FF_X47_Y4_N14       ; u_avs|sram_din[5]|d              ;
+;   3.709 ;   0.057 ; RR ; CELL ; 1      ; FF_X47_Y4_N14       ; avalon_slave:u_avs|sram_din[5]   ;
++---------+---------+----+------+--------+---------------------+----------------------------------+
+
++--------------------------------------------------------------------------------------------+
+; Data Required Path                                                                         ;
++---------+---------+----+------+--------+------------------+--------------------------------+
+; Total   ; Incr    ; RF ; Type ; Fanout ; Location         ; Element                        ;
++---------+---------+----+------+--------+------------------+--------------------------------+
+; 0.000   ; 0.000   ;    ;      ;        ;                  ; latch edge time                ;
+; 3.767   ; 3.767   ;    ;      ;        ;                  ; clock path                     ;
+;   0.000 ;   0.000 ;    ;      ;        ;                  ; source latency                 ;
+;   0.000 ;   0.000 ;    ;      ; 1      ; PIN_AF14         ; clk                            ;
+;   0.000 ;   0.000 ; RR ; IC   ; 1      ; IOIBUF_X32_Y0_N1 ; clk~input|i                    ;
+;   0.661 ;   0.661 ; RR ; CELL ; 1      ; IOIBUF_X32_Y0_N1 ; clk~input|o                    ;
+;   1.008 ;   0.347 ; RR ; IC   ; 1      ; CLKCTRL_G4       ; clk~inputCLKENA0|inclk         ;
+;   1.281 ;   0.273 ; RR ; CELL ; 2950   ; CLKCTRL_G4       ; clk~inputCLKENA0|outclk        ;
+;   3.314 ;   2.033 ; RR ; IC   ; 1      ; FF_X47_Y4_N14    ; u_avs|sram_din[5]|clk          ;
+;   3.767 ;   0.453 ; RR ; CELL ; 1      ; FF_X47_Y4_N14    ; avalon_slave:u_avs|sram_din[5] ;
+; 3.767   ; 0.000   ;    ;      ;        ;                  ; clock uncertainty              ;
+; 3.767   ; 0.000   ;    ; uTh  ; 1      ; FF_X47_Y4_N14    ; avalon_slave:u_avs|sram_din[5] ;
++---------+---------+----+------+--------+------------------+--------------------------------+
+
+----------------------------
+; Extra Fitter Information ;
+----------------------------
+HTML report is unavailable in plain text report export.
+
+
+Path #3: Hold slack is 0.069 
+===============================================================================
++-----------------------------------------------------+
+; Path Summary                                        ;
++--------------------+--------------------------------+
+; Property           ; Value                          ;
++--------------------+--------------------------------+
+; From Node          ; avs_writedata[0]               ;
+; To Node            ; avalon_slave:u_avs|sram_din[0] ;
+; Launch Clock       ; clk                            ;
+; Latch Clock        ; clk                            ;
+; Data Arrival Time  ; 3.840                          ;
+; Data Required Time ; 3.771                          ;
+; Slack              ; 0.069                          ;
++--------------------+--------------------------------+
+
++--------------------------------------------------------------------------------------+
+; Statistics                                                                           ;
++---------------------------+-------+-------+-------------+------------+-------+-------+
+; Property                  ; Value ; Count ; Total Delay ; % of Total ; Min   ; Max   ;
++---------------------------+-------+-------+-------------+------------+-------+-------+
+; Hold Relationship         ; 0.000 ;       ;             ;            ;       ;       ;
+; Clock Skew                ; 3.771 ;       ;             ;            ;       ;       ;
+; Data Delay                ; 3.640 ;       ;             ;            ;       ;       ;
+; Number of Logic Levels    ;       ; 1     ;             ;            ;       ;       ;
+; Physical Delays           ;       ;       ;             ;            ;       ;       ;
+;  Arrival Path             ;       ;       ;             ;            ;       ;       ;
+;   Clock                   ;       ;       ;             ;            ;       ;       ;
+;    Clock Network (Lumped) ;       ; 1     ; 0.000       ;            ; 0.000 ; 0.000 ;
+;   Data                    ;       ;       ;             ;            ;       ;       ;
+;    IC                     ;       ; 2     ; 2.752       ; 76         ; 0.000 ; 2.752 ;
+;    Cell                   ;       ; 2     ; 0.888       ; 24         ; 0.248 ; 0.640 ;
+;  Required Path            ;       ;       ;             ;            ;       ;       ;
+;   Clock                   ;       ;       ;             ;            ;       ;       ;
+;    IC                     ;       ; 3     ; 2.380       ; 63         ; 0.000 ; 2.033 ;
+;    Cell                   ;       ; 3     ; 1.391       ; 37         ; 0.273 ; 0.661 ;
++---------------------------+-------+-------+-------------+------------+-------+-------+
+Note: Negative delays are omitted from totals when calculating percentages
+
++---------------------------------------------------------------------------------------------+
+; Data Arrival Path                                                                           ;
++---------+---------+----+------+--------+-------------------+--------------------------------+
+; Total   ; Incr    ; RF ; Type ; Fanout ; Location          ; Element                        ;
++---------+---------+----+------+--------+-------------------+--------------------------------+
+; 0.000   ; 0.000   ;    ;      ;        ;                   ; launch edge time               ;
+; 0.000   ; 0.000   ;    ;      ;        ;                   ; clock path                     ;
+;   0.000 ;   0.000 ; R  ;      ;        ;                   ; clock network delay            ;
+; 0.200   ; 0.200   ; R  ; iExt ; 1      ; PIN_AF18          ; avs_writedata[0]               ;
+; 3.840   ; 3.640   ;    ;      ;        ;                   ; data path                      ;
+;   0.200 ;   0.000 ; RR ; IC   ; 1      ; IOIBUF_X50_Y0_N58 ; avs_writedata[0]~input|i       ;
+;   0.840 ;   0.640 ; RR ; CELL ; 4      ; IOIBUF_X50_Y0_N58 ; avs_writedata[0]~input|o       ;
+;   3.592 ;   2.752 ; RR ; IC   ; 1      ; FF_X47_Y4_N53     ; u_avs|sram_din[0]|asdata       ;
+;   3.840 ;   0.248 ; RR ; CELL ; 1      ; FF_X47_Y4_N53     ; avalon_slave:u_avs|sram_din[0] ;
++---------+---------+----+------+--------+-------------------+--------------------------------+
+
++--------------------------------------------------------------------------------------------+
+; Data Required Path                                                                         ;
++---------+---------+----+------+--------+------------------+--------------------------------+
+; Total   ; Incr    ; RF ; Type ; Fanout ; Location         ; Element                        ;
++---------+---------+----+------+--------+------------------+--------------------------------+
+; 0.000   ; 0.000   ;    ;      ;        ;                  ; latch edge time                ;
+; 3.771   ; 3.771   ;    ;      ;        ;                  ; clock path                     ;
+;   0.000 ;   0.000 ;    ;      ;        ;                  ; source latency                 ;
+;   0.000 ;   0.000 ;    ;      ; 1      ; PIN_AF14         ; clk                            ;
+;   0.000 ;   0.000 ; RR ; IC   ; 1      ; IOIBUF_X32_Y0_N1 ; clk~input|i                    ;
+;   0.661 ;   0.661 ; RR ; CELL ; 1      ; IOIBUF_X32_Y0_N1 ; clk~input|o                    ;
+;   1.008 ;   0.347 ; RR ; IC   ; 1      ; CLKCTRL_G4       ; clk~inputCLKENA0|inclk         ;
+;   1.281 ;   0.273 ; RR ; CELL ; 2950   ; CLKCTRL_G4       ; clk~inputCLKENA0|outclk        ;
+;   3.314 ;   2.033 ; RR ; IC   ; 1      ; FF_X47_Y4_N53    ; u_avs|sram_din[0]|clk          ;
+;   3.771 ;   0.457 ; RR ; CELL ; 1      ; FF_X47_Y4_N53    ; avalon_slave:u_avs|sram_din[0] ;
+; 3.771   ; 0.000   ;    ;      ;        ;                  ; clock uncertainty              ;
+; 3.771   ; 0.000   ;    ; uTh  ; 1      ; FF_X47_Y4_N53    ; avalon_slave:u_avs|sram_din[0] ;
++---------+---------+----+------+--------+------------------+--------------------------------+
+
+----------------------------
+; Extra Fitter Information ;
+----------------------------
+HTML report is unavailable in plain text report export.
+
+

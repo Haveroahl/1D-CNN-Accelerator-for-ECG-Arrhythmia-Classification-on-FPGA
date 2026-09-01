@@ -1,0 +1,5 @@
+# in_ch cp_en nb base (per layer Conv1..4) — driver CONFIG window
+1 15 8 0
+4 15 6 1
+4 255 6 5
+8 1 7 9

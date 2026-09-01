@@ -1,0 +1,41 @@
+{
+  "tag": "nm8181",
+  "out_ch": [
+    8,
+    1,
+    8,
+    1
+  ],
+  "in_ch": {
+    "conv1": 1,
+    "conv2": 8,
+    "conv3": 1,
+    "conv4": 8
+  },
+  "cp_en": {
+    "conv1": 255,
+    "conv2": 1,
+    "conv3": 255,
+    "conv4": 1
+  },
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7
+  },
+  "base": {
+    "conv1": 0,
+    "conv2": 1,
+    "conv3": 9,
+    "conv4": 10
+  },
+  "total_words": 18,
+  "expected_argmax": 0,
+  "logits": [
+    263,
+    -500,
+    -12,
+    228
+  ]
+}

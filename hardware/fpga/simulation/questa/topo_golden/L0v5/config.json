@@ -1,0 +1,41 @@
+{
+  "tag": "L0v5",
+  "out_ch": [
+    5,
+    4,
+    4,
+    4
+  ],
+  "in_ch": {
+    "conv1": 1,
+    "conv2": 5,
+    "conv3": 4,
+    "conv4": 4
+  },
+  "cp_en": {
+    "conv1": 31,
+    "conv2": 15,
+    "conv3": 15,
+    "conv4": 15
+  },
+  "nb": {
+    "conv1": 8,
+    "conv2": 6,
+    "conv3": 6,
+    "conv4": 7
+  },
+  "base": {
+    "conv1": 0,
+    "conv2": 1,
+    "conv3": 6,
+    "conv4": 10
+  },
+  "total_words": 14,
+  "expected_argmax": 2,
+  "logits": [
+    -660,
+    5,
+    888,
+    -64
+  ]
+}

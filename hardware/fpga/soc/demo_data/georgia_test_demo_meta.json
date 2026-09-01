@@ -1,0 +1,19 @@
+{
+  "set": "Georgia",
+  "n_samples": 5459,
+  "sample_len": 2500,
+  "input_shift_bits": 2,
+  "expected_accuracy": 0.930023813885327,
+  "expected_correct": 5077,
+  "class_distribution": {
+    "AFIB": 692,
+    "GSVT": 1192,
+    "SB": 1521,
+    "SR": 2054
+  },
+  "ecg_file": "georgia_test_ecg_int8.bin",
+  "labels_file": "georgia_test_labels.bin",
+  "format": "ecg: N*2500 signed int8 row-major; labels: N uint8",
+  "note": "Zero-shot far-transfer. Weights = Chapman QAT-INT8 baked in ROM; NO reload needed.",
+  "weights": "Chapman QAT-INT8 (same bitstream as the Chapman set)"
+}

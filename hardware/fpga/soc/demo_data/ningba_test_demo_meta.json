@@ -1,0 +1,19 @@
+{
+  "set": "Chapman",
+  "n_samples": 4973,
+  "sample_len": 2500,
+  "input_shift_bits": 2,
+  "expected_accuracy": 0.9427007841342047,
+  "class_distribution": {
+    "AFIB": 1130,
+    "GSVT": 869,
+    "SB": 1791,
+    "SR": 1183
+  },
+  "ecg_file": "ningba_test_ecg_int8.bin",
+  "labels_file": "ningba_test_labels.bin",
+  "format": "ecg: N*2500 signed int8 row-major; labels: N uint8",
+  "expected_correct": 4688,
+  "note": "expected_accuracy is the BIT-EXACT INT8 number (integer floor GAP) = what the RTL ROM build emits. The float-GAP simulation gives 0.9473; the board must match 0.9427 (4688/4973). Display name = \"Chapman\"; on-disk file names keep the ningba_* prefix (data unchanged).",
+  "weights": "Chapman QAT-INT8, baked into jtag_top.sof ROM (conv*_w.hex, nb=8/7/6/7)"
+}

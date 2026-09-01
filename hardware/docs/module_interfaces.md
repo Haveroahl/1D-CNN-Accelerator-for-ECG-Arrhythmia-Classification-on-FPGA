@@ -1,9 +1,21 @@
 # Module Interfaces — ECG CNN Accelerator (Compute Core)
 
 Tài liệu tham chiếu **interface** của 11 module trong compute core (không bao gồm
-bus adapter / top wrapper / UART). Đây là bảng port/parameter để đưa thẳng vào luận
-văn — mọi width và tên tín hiệu lấy **verbatim** từ RTL trong `hardware/RTL/`
-(bỏ qua `hardware/RTL/txt/` — snapshot cũ). Bản LaTeX paste-ready: [module_interfaces_tables.tex](module_interfaces_tables.tex).
+bus adapter / top wrapper / UART). Mọi width và tên tín hiệu lấy **verbatim** từ
+**`hardware/RTL/`** — bản ROM single-load, bản chính luận văn (bỏ qua
+`hardware/RTL/txt/` — snapshot cũ).
+
+> ⚠️ **Phạm vi = `hardware/RTL/` (ROM), KHÔNG phải `hardware/RTL_weight/` (production
+> weight-load + runtime topology config).** Hai bản khác nhau đáng kể ở
+> `cp_weight_store` (117 vs 211 dòng), `cp_engine` (217 vs 255 dòng),
+> `gap_fc_argmax` (74 vs 95 dòng), `ecg_core` (166 vs 199 dòng): bản `RTL_weight/`
+> có thêm toàn bộ port `cfg_*` (runtime topology), `w_wr_*`/`b_wr_*`/`fcw_wr_*`
+> (Avalon bus write cho weight/bias/FC), và `out_ch_mask`. **Bản `RTL/` không có
+> bất kỳ port nào trong số này** — topology Chapman/ningba hard-code trong
+> `cnn_controller.v` (`cfg_in_ch_of`/`cfg_cp_en_of`/`cfg_nb_of` là **function** nội
+> bộ, không phải port bus), weight nạp 1 lần lúc elaboration qua `$readmemh`.
+> Xem [System_Design.md](../System_Design.md) mục "Runtime-Reconfigurable Topology"
+> cho bản `RTL_weight/`.
 
 **Cách đọc bảng:** mỗi hàng = 1 port. Cột `Dir` (input/output), `Width` (verbatim,
 `1` = 1-bit scalar), `Name`, `Group` (nhóm theo cách file gom), `Purpose`.
@@ -15,20 +27,21 @@ văn — mọi width và tên tín hiệu lấy **verbatim** từ RTL trong `har
 ```
 ecg_core                              — bus-agnostic compute core
 ├── cp_engine                         — 8 CP block song song + SRW + tap MUX + addr-gen
-│   ├── cp_weight_store               [WEIGHT_ROM: FF-ROM V1 | mặc định: 8× M10K RAM V2]
+│   ├── cp_weight_store               — 4 FF-array ROM per-layer (ROM single-load, không bus write)
 │   └── cp_block × 8  (oc = 0..7)     — 1 output channel mỗi block
 │       ├── cp_mac                    — S1→S4  MAC + adder tree
-│       ├── cp_accumulate_rescale     — S5→S8  acc + bias + rescale + ReLU
+│       ├── cp_accumulate_rescale     — S5→S8  acc (fold bias+round) → S_bias → rescale → ReLU
 │       └── cp_pool                   — S9     MaxPool
 ├── ping_pong_sram                    — feature-map giữa các layer (Ping đọc / Pong ghi)
-├── gap_fc_argmax                     — GAP → FC → Argmax
-└── cnn_controller                    — FSM thống nhất Conv1..4 + GAP/FC
+├── gap_fc_argmax                     — GAP → FC → Argmax (wrapper của gap_unit/fc_unit/argmax_unit)
+└── cnn_controller                    — FSM thống nhất Conv1..4 + GAP/FC, topology hard-code
 ```
 
 > **Lưu ý phân cấp:** `input_sram` **KHÔNG** nằm trong `ecg_core` — nó ở **wrapper**
-> (top-level). Core chỉ *đọc* input SRAM qua cặp `input_rd_addr` → `input_dout`
-> (1-cycle latency). Ranh giới này tách "compute latency" (start→done) khỏi pha
-> host nạp input. `input_sram.v` vẫn được tài liệu hoá dưới đây vì nó thuộc datapath.
+> (`ecg_accelerator_top.v`). Core chỉ *đọc* input SRAM qua cặp `input_rd_addr` →
+> `input_dout` (1-cycle latency). Ranh giới này tách "compute latency" (start→done)
+> khỏi pha host nạp input. `input_sram.v` vẫn được tài liệu hoá dưới đây vì nó
+> thuộc datapath.
 
 ---
 
@@ -52,8 +65,11 @@ thuần, dot-product 5 tap × 5 weight, latency 4 cycle. Width tăng 16→17→1
 ## 2. `cp_accumulate_rescale` — accumulate + bias + rescale + ReLU (S5→S8)
 
 Nhận `tree_out`, sinh 1 activation INT8. `bias` và `round_add` (round-half-up) được
-**fold vào acc-init** (`a_in==0`) → S6 chỉ còn 1 phép `>>> nb` thuần. S7 clamp
-[−127,127], S8 ReLU (chỉ Conv4).
+**fold vào acc-init** (`a_in==0`) ở S5 → S6 chỉ còn 1 phép `>>> nb` thuần. `S_bias`
+là delay-then-capture thuần (`biased <= acc` khi `out_valid_d1`, KHÔNG có adder —
+thay thế cặp S5b(`acc_final_r`)+S_bias cũ, xem [cp_pipeline.md](cp_pipeline.md) và
+[cp_submodule_timing.md](cp_submodule_timing.md)). S7 clamp [−127,127], S8 ReLU
+(chỉ Conv4).
 
 **Parameters:** none.
 
@@ -63,7 +79,7 @@ Nhận `tree_out`, sinh 1 activation INT8. `bias` và `round_add` (round-half-up
 | input | `1`      | `rst`           | clock/reset | reset |
 | input | `1`      | `pool_rst`      | clock/reset | pool/layer-transition reset |
 | input signed | `[19:0]` | `tree_out` | data (MAC in) | từ cp_mac |
-| input signed | `[31:0]` | `bias_in`  | config | INT32 bias (từ bias_rom) |
+| input signed | `[31:0]` | `bias_in`  | config | INT32 bias (từ cp_weight_store) |
 | input | `[3:0]`  | `a_in`          | control | channel counter delayed 5 cy (a_d5) |
 | input | `[3:0]`  | `in_ch`         | control | IN_CH layer hiện tại (1/4/4/8) |
 | input | `1`      | `compute_en_in` | control | pipeline enable delayed 5 cy (ce_d5) |
@@ -98,8 +114,8 @@ priming.
 ## 4. `cp_block` — Conv-Pool block (1 output channel)
 
 Wrapper mỏng ghép `cp_mac` + `cp_accumulate_rescale` + `cp_pool` (tách cấu trúc, không
-đổi logic, bit-exact). Pipeline: MULT(1) → TREE(3) → ACC(IN_CH) → ACC_FINAL(1) →
-BIAS(1) → RESCALE(2) → RELU(1) → POOL.
+đổi logic, bit-exact). Pipeline: MULT(1) → TREE(3) → ACC(IN_CH) → S_bias(1, capture
+không adder) → RESCALE(2) → RELU(1) → POOL.
 
 **Parameters:** `IN_CH_W = 4` (width của a_d5 counter, cố định 4-bit).
 
@@ -109,7 +125,7 @@ BIAS(1) → RESCALE(2) → RELU(1) → POOL.
 | input | `1`      | `rst`           | clock/reset | reset |
 | input | `[39:0]` | `x_in`          | data | 5 tap từ cp_engine mux_s1, packed 5×8b |
 | input | `[39:0]` | `w`             | data | weights từ w_packed, packed 5×8b |
-| input signed | `[31:0]` | `bias_in`  | config | INT32 bias từ bias_rom |
+| input signed | `[31:0]` | `bias_in`  | config | INT32 bias từ cp_weight_store |
 | input | `[3:0]`  | `a_in`          | control | channel counter delayed 5 cy (a_d5) |
 | input | `[3:0]`  | `in_ch`         | control | IN_CH layer hiện tại (1/4/4/8) |
 | input | `1`      | `compute_en_in` | control | pipeline enable delayed 5 cy (ce_d5) |
@@ -121,32 +137,23 @@ BIAS(1) → RESCALE(2) → RELU(1) → POOL.
 
 ---
 
-## 5. `cp_weight_store` — weight + bias storage (V1 ROM / V2 RAM)
+## 5. `cp_weight_store` — weight + bias storage (ROM single-load)
 
-Lưu conv weight + bias cho 8-PE cp_engine. Hai build-variant **chung port + chung
-timing** (`w_packed` valid ở N+1) nên cùng bit-exact. Output flatten vì Verilog-2001
+Lưu conv weight + bias cho 8-PE cp_engine. **Chỉ 1 biến thể trong `RTL/`**: 4 FF-array
+ROM per-layer (`w_rom_conv1..4`), MUX kết hợp async (layer 4:1 + ic 8:1) rồi 1 FF stage
+(`w_packed` valid ở N+1). Weight nạp 1 lần lúc elaboration qua `$readmemh`
+(`conv1_w.hex`..`conv4_w.hex`, `conv_bias.hex`) — **không có bus write, không có
+`cfg_base`/runtime reload** (khác bản `RTL_weight/`). Output flatten vì Verilog-2001
 cấm array-port.
 
 **Parameters:** none.
 
-**Build variants:** xem [bảng tổng](#build-variants). `WEIGHT_ROM` → V1 (4 FF-array ROM
-per-layer, async MUX, topology Chapman cố định, không bus write). Mặc định → V2 (8
-M10K RAM per-oc, 40b×32, sync read, có bus write + `cfg_base`).
-
 | Dir | Width | Name | Group | Purpose |
 |-----|-------|------|-------|---------|
 | input | `1`      | `clk`         | clock/reset | clock |
-| input | `1`      | `rst`         | clock/reset | reset |
+| input | `1`      | `rst`         | clock/reset | reset (không dùng trong logic — giữ cho đồng bộ port) |
 | input | `[2:0]`  | `layer_state` | selector | CONV1=2 .. CONV4=5 |
 | input | `[3:0]`  | `a`           | selector | input-channel counter (weight word index) |
-| input | `[19:0]` | `cfg_base`    | config (V2) | 4 × 5-bit weight-RAM word base |
-| input | `1`      | `w_wr_en`     | bus write | conv weight write enable |
-| input | `[2:0]`  | `w_wr_oc`     | bus write | chọn 1 trong 8 RAM per-oc |
-| input | `[4:0]`  | `w_wr_word`   | bus write | RAM word index (0..31) = layer_base + ic |
-| input | `[39:0]` | `w_wr_data`   | bus write | full 40-bit packed 5-tap entry |
-| input | `1`      | `b_wr_en`     | bus write | bias write enable |
-| input | `[4:0]`  | `b_wr_addr`   | bus write | bias addr (0..31) |
-| input | `[31:0]` | `b_wr_data`   | bus write | INT32 bias |
 | output | `[319:0]` | `w_packed_flat` | data out | 8 × 40b packed weights (registered N+1) |
 | output | `[255:0]` | `b_cur_flat`    | data out | 8 × 32b INT32 bias, layer hiện tại |
 
@@ -157,7 +164,7 @@ M10K RAM per-oc, 40b×32, sync read, có bus write + `cfg_base`).
 8 output channel chạy song song. Sở hữu SRW array, tap MUX, delay chain (a_d5/ce_d5),
 sinh địa chỉ đọc SRAM (`t−2`), weight store, và gating `pong_we = pool_write & cp_en`.
 
-**Parameters:** none. (Kế thừa `WEIGHT_ROM`/`NO_WEIGHT_INIT` qua child `cp_weight_store`.)
+**Parameters:** none.
 
 | Dir | Width | Name | Group | Purpose |
 |-----|-------|------|-------|---------|
@@ -178,24 +185,21 @@ sinh địa chỉ đọc SRAM (`t−2`), weight store, và gating `pong_we = poo
 | input | `[63:0]` | `ping_dout`       | data in | từ ping_pong: `ping_dout[ch*8+:8]` |
 | output | `[63:0]` | `pong_din`       | data out | write data/channel: `pong_din[ch*8+:8]` |
 | output | `[7:0]`  | `pong_we`        | data out | per-channel write enable |
-| output | `[11:0]` | `sram_rd_addr`   | addr | read addr → input_sram + ping_pong |
+| output | `[11:0]` | `sram_rd_addr`   | addr | read addr → input_sram + ping_pong_sram |
 | input | `[11:0]` | `sram_rd_addr_in` | addr | base từ controller (= t) |
-| input | `1`      | `w_wr_en`         | bus write | conv weight WE |
-| input | `[2:0]`  | `w_wr_oc`         | bus write | chọn RAM per-oc (0..7) |
-| input | `[4:0]`  | `w_wr_word`       | bus write | RAM word index (0..31) |
-| input | `[39:0]` | `w_wr_data`       | bus write | 40-bit packed 5-tap entry |
-| input | `1`      | `b_wr_en`         | bus write | bias WE |
-| input | `[4:0]`  | `b_wr_addr`       | bus write | bias addr |
-| input | `[31:0]` | `b_wr_data`       | bus write | INT32 bias |
-| input | `[19:0]` | `cfg_base`        | config | weight-RAM word base/layer (4 × 5-bit) |
+
+> Không có port `w_wr_*`/`b_wr_*`/`cfg_base` trong bản `RTL/` — đó là phần chỉ có ở
+> `RTL_weight/` (weight RAM bus write + runtime layer_base).
 
 ---
 
 ## 7. `cnn_controller` — FSM thống nhất
 
 FSM điều khiển toàn pipeline: drive cp_engine (Conv1..4) rồi gap_fc_argmax
-(GAP/FC/Argmax) tuần tự. States: IDLE/LOAD_INPUT/CONV1..4/GAP_FC_S/DONE_S. Config
-topology per-layer nạp qua `cfg_*` (reset default = Chapman).
+(GAP/FC/Argmax) tuần tự. States: IDLE/LOAD_INPUT/CONV1..4/GAP_FC_S/DONE_S. Topology
+**hard-code** qua 3 function nội bộ (`cfg_in_ch_of`/`cfg_cp_en_of`/`cfg_nb_of`,
+input = layer index 0..3, KHÔNG phải port bus) — ningba re-train 2026-07-28:
+`in_ch=1,4,4,8` / `cp_en=0F,0F,FF,FF` / `nb=8,7,6,7`.
 
 **Parameters:** none.
 
@@ -205,9 +209,6 @@ topology per-layer nạp qua `cfg_*` (reset default = Chapman).
 | input | `1`      | `rst`           | clock/reset | synchronous reset |
 | input | `1`      | `start`         | control in | 1-cycle pulse từ avalon_slave |
 | input | `1`      | `pool_write`    | control in | từ cp_engine (ch0 representative) |
-| input | `[15:0]` | `cfg_in_ch`     | config | 4 × 4-bit |
-| input | `[31:0]` | `cfg_cp_en`     | config | 4 × 8-bit |
-| input | `[19:0]` | `cfg_nb`        | config | 4 × 5-bit |
 | output | `[3:0]`  | `a`            | to cp_engine | channel counter 0..IN_CH−1 |
 | output | `[11:0]` | `t`            | to cp_engine | output position counter |
 | output | `1`      | `shift_en`     | to cp_engine | = (a == in_ch−1) |
@@ -231,17 +232,21 @@ topology per-layer nạp qua `cfg_*` (reset default = Chapman).
 | output | `1`      | `done`         | top-level | 1-cycle pulse |
 | output | `[1:0]`  | `result`       | top-level | latched argmax class |
 
+> Không có port `cfg_in_ch`/`cfg_cp_en`/`cfg_nb` trong bản `RTL/` — topology cố định
+> qua function nội bộ, không nạp được lúc runtime (khác `RTL_weight/`).
+
 ---
 
 ## 8. `gap_fc_argmax` — GAP → FC → Argmax
 
-Engine tuần tự: GAP (6cy) → FC (10cy + 1 flush) → Argmax (4cy) → Done (1cy) = 22cy sau
-khi vào từ Conv4 layer_done. FC weight/bias là FF array, nạp qua bus trước inference.
+Wrapper mỏng (bit-exact structural split, không đổi logic) ghép 3 submodule:
+`gap_unit` (GAP, ping_dout→gap_reg_flat) → `fc_unit` (FC + FC weight/bias store,
+gap_reg_flat→fc_acc_flat) → `argmax_unit` (Argmax, fc_acc_flat→result). Tổng
+GAP(6cy) → FC(10cy + 1 flush) → Argmax(4cy) → Done(1cy) = 22cy sau khi vào từ Conv4
+layer_done. FC weight/bias là FF array trong `fc_unit`, nạp 1 lần qua `$readmemh`
+(`fc_weights.hex`/`fc_bias.hex`) — **không có bus write** trong bản `RTL/`.
 
 **Parameters:** none.
-
-**Build variants:** `NO_WEIGHT_INIT` → bỏ `$readmemh` init `fc_weights.hex`/`fc_bias.hex`
-(bus-only load). Bus write path luôn có.
 
 | Dir | Width | Name | Group | Purpose |
 |-----|-------|------|-------|---------|
@@ -252,12 +257,12 @@ khi vào từ Conv4 layer_done. FC weight/bias là FF array, nạp qua bus trư�
 | input | `[3:0]`  | `fc_step`      | control | 0..9 |
 | input | `[1:0]`  | `argmax_step`  | control | 0..3 |
 | input | `[63:0]` | `ping_dout`    | data in | Conv4 output; `ping_dout[ch*8+:8]`, 1-cy |
-| input | `[7:0]`  | `out_ch_mask`  | config | Conv4 active-output mask (= Conv4 cp_en); default FF |
 | output | `[8:0]` | `gap_rd_addr`  | addr out | Ping SRAM read addr, broadcast 8 ch (0..3) |
-| input | `1`      | `fcw_wr_en`    | bus write | FC weight/bias WE |
-| input | `[5:0]`  | `fcw_wr_addr`  | bus write | addr; `[5]=1` → fc_b[addr[1:0]], else fc_w[addr[4:0]] |
-| input | `[31:0]` | `fcw_wr_data`  | bus write | INT32 (bias) hoặc INT8 ở [7:0] (weight) |
 | output | `[1:0]` | `result`       | data out | argmax class index |
+
+> Không có port `out_ch_mask`/`fcw_wr_en`/`fcw_wr_addr`/`fcw_wr_data` trong bản
+> `RTL/` — GAP luôn coi 8 kênh Conv4 active (fixed Chapman/ningba topology); đó là
+> phần chỉ có ở `RTL_weight/` (Conv4 out_ch<8 qua CONFIG window).
 
 ---
 
@@ -312,38 +317,24 @@ datapath đã verify. `input_sram` ở wrapper — core chỉ đọc qua `input_
 | input | `1`      | `rst`         | clock/reset | synchronous reset (active high) |
 | output | `[11:0]` | `input_rd_addr` | input SRAM | read addr → wrapper input_sram |
 | input | `[7:0]`  | `input_dout`  | input SRAM | read data (1-cy latency) |
-| input | `1`      | `w_wr_en`     | weight load | conv weight WE |
-| input | `[2:0]`  | `w_wr_oc`     | weight load | per-oc RAM select |
-| input | `[4:0]`  | `w_wr_word`   | weight load | RAM word index |
-| input | `[39:0]` | `w_wr_data`   | weight load | 40-bit weight entry |
-| input | `1`      | `b_wr_en`     | weight load | bias WE |
-| input | `[4:0]`  | `b_wr_addr`   | weight load | bias addr |
-| input | `[31:0]` | `b_wr_data`   | weight load | INT32 bias |
-| input | `1`      | `fcw_wr_en`   | weight load | FC WE |
-| input | `[5:0]`  | `fcw_wr_addr` | weight load | FC addr |
-| input | `[31:0]` | `fcw_wr_data` | weight load | FC data |
-| input | `[15:0]` | `cfg_in_ch`   | topology config | 4 × 4-bit |
-| input | `[31:0]` | `cfg_cp_en`   | topology config | 4 × 8-bit |
-| input | `[19:0]` | `cfg_nb`      | topology config | 4 × 5-bit |
-| input | `[19:0]` | `cfg_base`    | topology config | 4 × 5-bit |
 | input | `1`      | `start`       | control/status | kick off inference |
 | output | `1`     | `busy`        | control/status | busy |
 | output | `1`     | `done`        | control/status | done pulse |
 | output | `[1:0]` | `result`      | control/status | class 0..3 |
 
-> `cfg_base` chỉ cp_engine dùng; `out_ch_mask` của gap_fc_argmax được nối vào
-> `cfg_cp_en[3*8 +: 8]` (slice Conv4) bên trong `ecg_core`.
+> Bản `RTL/` chỉ có 7 port này (bus-agnostic core tối giản). Bản `RTL_weight/` có
+> thêm `w_wr_*`/`b_wr_*`/`fcw_wr_*` (weight/bias/FC load) và `cfg_in_ch`/`cfg_cp_en`/
+> `cfg_nb`/`cfg_base` (runtime topology) — `out_ch_mask` của gap_fc_argmax ở bản đó
+> nối vào `cfg_cp_en[3*8 +: 8]` (slice Conv4) bên trong `ecg_core`.
 
 ---
 
 ## Build variants
 
-| Define | File ảnh hưởng | Chuyển đổi gì |
-|--------|----------------|---------------|
-| `WEIGHT_ROM` | `cp_weight_store.v` | V1 FF-array ROM (async MUX, topology Chapman cố định, không bus write, `$readmemh` init luôn có) ↔ mặc định V2: 8× M10K weight RAM reload runtime. Ở V1, path bias bus-write (`b_wr_en`) bị compile-out. |
-| `NO_WEIGHT_INIT` | `cp_weight_store.v` (path V2), `gap_fc_argmax.v` | Bỏ `$readmemh` init: w_ram0..7 + conv_bias (V2 only) và fc_weights + fc_bias → chứng minh đường nạp qua bus đứng độc lập. V1 ROM init KHÔNG bị guard bởi define này. |
-
-Không còn `ifdef`/`define` build variant nào khác trong 11 module.
+Bản `RTL/` **không có** `ifdef`/`define` build variant nào (khác `RTL_weight/`, nơi
+`WEIGHT_ROM`/`NO_WEIGHT_INIT` chọn giữa FF-ROM và M10K weight-RAM reload). Toàn bộ
+11 module trong `RTL/` chỉ có 1 biến thể: ROM single-load, weight baked-in qua
+`$readmemh`, topology hard-code trong `cnn_controller.v`.
 
 ## Load-bearing widths (tham chiếu nhanh)
 
@@ -351,7 +342,7 @@ Không còn `ifdef`/`define` build variant nào khác trong 11 module.
 |---|---|---|
 | ping_pong addr (`wr_addr`/`rd_addr`) | `[8:0]` | dùng 0..499; mem array `[0:511]` |
 | input_sram + cp_engine addr (`sram_rd_addr`, `t`) | `[11:0]` | dùng 0..2499 |
-| weight RAM word (`w_ram*`) | `[39:0]` × 32 (`[0:31]`) | packed 5 tap × 8b |
+| weight ROM entry (`w_rom_conv1..4`) | `[39:0]` × (4/16/32/64 entries) | packed 5 tap × 8b, per-layer FF array |
 | bias store (`b_store`) | `[31:0]` × 32 (`[0:31]`) | INT32, addr = oc*4 + layer |
 | tap/weight packed (`x_in`, `w`) | `[39:0]` | 5 × 8b |
 | tree_out | `[19:0]` | sign-extended Σ 5 tích |

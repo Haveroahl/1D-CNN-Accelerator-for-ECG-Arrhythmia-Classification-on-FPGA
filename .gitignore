@@ -83,3 +83,44 @@ hardware/fpga/soc/core_pll.bsf
 # Nios V firmware build (regenerate via niosv-bsp / niosv-app + cmake)
 hardware/fpga/sw/niosv/bsp/
 hardware/fpga/sw/niosv/app/
+
+# ── Bổ sung 2026-09-01 (chuẩn bị public GitHub) ────────────────────────────
+# Questa/ModelSim transcript ở mọi thư mục (không chỉ questa/)
+transcript
+**/transcript
+hardware/fpga/simulation/questa/rtl_work_check/
+hardware/fpga/simulation/questa/*_work/
+
+# Log chạy thí nghiệm (regenerate được từ script)
+*.log
+software/python/*.log
+software/python/results/**/*.log
+hardware/fpga/soc/*.log
+hardware/fpga_de0/*.log
+
+# Bản làm việc cũ (hardware_v2/v3) — không versioned
+No_use/
+hardware_v3/
+
+# Bundle export (regenerate từ script đóng gói)
+export/
+
+# ── DE0-Nano (ngoài phạm vi luận văn) — chỉ giữ source, bỏ build 1.6GB ─────
+hardware/fpga_de0/db/
+hardware/fpga_de0/incremental_db/
+hardware/fpga_de0/output_files/
+hardware/fpga_de0/simulation/
+
+# Backup tạm của drawio / Office
+*.bkp
+.$*
+~$*
+
+# Demo data nhị phân lớn (regenerate bằng gen_test_golden.py)
+hardware/fpga/soc/demo_data/*.bin
+
+# PDF paper của tác giả khác (bản quyền — không redistribute)
+Article.pdf
+Article.xml
+InceptionNet_b_MINA.pdf
+Sub-8K Dilated 1D-CNN.pdf

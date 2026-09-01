@@ -1,0 +1,94 @@
+================================================================================
+SO SÁNH TÀI NGUYÊN / AREA: Bài báo Liu 2023 vs Thesis
+================================================================================
+Ngày note: 2026-06-10
+Nguồn số liệu:
+  - Liu 2023: Article.xml (Table 3, cột "Proposed"), Frontiers in Physiology,
+    DOI 10.3389/fphys.2023.1079503
+  - Thesis: hardware/fpga/output_files/ecg_accelerator_top.fit.summary
+    (Quartus 25.1std, compile 2026-06-07)
+
+Bối cảnh: cùng class model (1D-CNN 4-layer), cùng Chapman dataset, cùng họ
+Cyclone V — nên so sánh trực tiếp được. NHƯNG khác die:
+  - Liu : Cyclone V 5CSEBA6U23I7  (41,910 ALM | 83,820 Reg | 112 DSP | 5,662,720 mem bits)
+  - Thesis: Cyclone V 5CSXFC6D6F31C6 (có HPS, chip lớn hơn | 5,662,720 mem bits)
+=> So sánh % trực tiếp BỊ LỆCH mẫu số. Phải quy về SỐ TUYỆT ĐỐI.
+
+--------------------------------------------------------------------------------
+1. BẢNG TÀI NGUYÊN TUYỆT ĐỐI (cách fair nhất — dùng cho paper)
+--------------------------------------------------------------------------------
+Khối vật lý | Liu 2023 (tuyệt đối)   | Thesis    | Tỉ lệ Thesis/Liu
+------------+------------------------+-----------+---------------------------
+ALM         | ~21,374 (51% × 41,910) | 2,331     | 0.11×  (ít hơn ~9.2×)
+Register    | ~72,085 (86% × 83,820) | 3,179     | 0.044× (ít hơn ~22.7×)
+DSP18       | ~44     (39% × 112)    | 28        | 0.64×  (ít hơn ~1.6×)
+Mem (M10K)  | ~28,300 bits (0.5%)    | 85,536 b  | 3.0×   (NHIỀU hơn 3×)
+RAM Blocks  | NA                     | 12/553(2%)| —  (sau pack 512x16; trước: 20)
+Clock       | 50 MHz                 | 100 MHz   | —
+
+[UPDATE 2026-06-10] ping_pong_sram pack 2 channel/M10K (512x16): RAM Blocks 20 -> 12
+(ping-pong 16 -> 8 M10K, input_sram giữ 4). Block mem bits không đổi (85,536). ALM/Reg
+giữ nguyên (~2,327 / 3,162). Bit-exact 21/21 PASS, cycle 5216 không đổi. Nhánh:
+feature/pingpong-pack-512x16.
+LƯU Ý TIMING: sau refactor, worst setup slack = -0.447ns @100MHz NHƯNG path violate là
+Avalon I/O combinational (avs_address -> avs_readdata), bị ép bởi set_input/output_delay
+1.5ns trong SDC (giả định I/O standalone). Toàn bộ 12 worst path đều là Avalon I/O —
+KHÔNG path nào trong datapath compute. Worst internal reg-to-reg vẫn +0.191ns (PASS).
+Path Avalon này vốn borderline từ baseline; khi tích hợp Qsys/HPS (Phase D) chân Avalon
+thành chân ảo, ràng buộc I/O không áp dụng. (Mem giảm là điểm phụ — paper bán ALM/Reg.)
+
+ALM là proxy area chính (chứa cả LUT + FF). Theo ALM: thesis chiếm ~11% diện
+tích logic của Liu.
+
+--------------------------------------------------------------------------------
+2. AREA-EQUIVALENT GỘP (chỉ để hình dung — KHÔNG đưa vào paper như fact)
+--------------------------------------------------------------------------------
+Quy DSP + M10K về "ALM tương đương" (hệ số XẤP XỈ, không phải số chính thức Intel):
+  1 DSP18  ≈ ~100 ALM-eq ; 1 M10K block ≈ ~40 ALM-eq
+
+Thành phần        | Liu (ALM-eq) | Thesis (ALM-eq)
+------------------+--------------+-----------------
+ALM logic         | ~21,374      | ~2,331
+DSP (×~100)       | ~4,400       | ~2,800
+M10K (×~40)       | ~few         | ~800 (20×40)
+------------------+--------------+-----------------
+TỔNG ALM-eq       | ~25,800      | ~5,900
+
+=> Thesis ≈ 23% area-equivalent của Liu (nhỏ hơn ~4.4×).
+   CẢNH BÁO: hệ số quy đổi là ước lượng, dùng nội bộ thôi.
+
+--------------------------------------------------------------------------------
+3. KẾT LUẬN AREA / FOOTPRINT
+--------------------------------------------------------------------------------
+- Theo logic area (ALM, proxy chuẩn): Thesis ~11% area của Liu → nhỏ hơn ~9×.  <-- con số nên dùng
+- Theo register: nhỏ hơn ~22×.
+- Theo DSP: nhỏ hơn ~1.6×.
+- Memory đi NGƯỢC: lớn hơn 3× (nhưng tuyệt đối vẫn nhỏ, chỉ 2% device).
+- Gộp area-equivalent thô: nhỏ hơn ~4–4.5×.
+
+--------------------------------------------------------------------------------
+4. LÝ DO KIẾN TRÚC (trade-off logic-vs-memory)
+--------------------------------------------------------------------------------
+- Liu = FULLY-MAPPED (spatial): mỗi layer có hardware riêng, data chảy thẳng qua
+  adder-tree, không cần buffer trung gian lớn → đẩy chi phí vào ALM(51%) +
+  Reg(86%), mem chỉ 0.5%.
+- Thesis = TIME-MULTIPLEXED (8 PE share 4 layer): phải lưu feature map trung gian
+  trong Ping-Pong SRAM + Input SRAM (2500×8b) → tốn M10K (20 blocks, 85,536 bits),
+  nhưng ALM/Reg ít hơn áp đảo. Đây cũng là cái enable weight-reload cross-dataset (C5).
+
+=> Đánh đổi MEMORY lấy LOGIC: dùng mem ~3× để đổi ALM ít hơn ~9× và Reg ít hơn ~22×.
+
+--------------------------------------------------------------------------------
+5. CÂU BÁN HÀNG CHO PAPER
+--------------------------------------------------------------------------------
+"Despite the same network class and dataset, our time-multiplexed datapath uses
+~9× fewer ALMs and ~22× fewer registers than the fully-mapped baseline, at the
+cost of 3× on-chip memory — a logic-for-memory trade-off well-suited to
+area-constrained wearables."
+
+LƯU Ý FRAMING:
+- Report TỪNG tài nguyên riêng (ALM/Reg/DSP/M10K) — đúng convention FPGA, đúng cách
+  Liu báo. KHÔNG đưa "ALM-equivalent" gộp như fact.
+- Highlight ALM (~9×) + Register (~22×). ĐỪNG để memory thành highlight (đi ngược).
+- Memory cao hơn = hệ quả trực tiếp của time-multiplexed, framing "enabling cost"
+  chứ không phải lãng phí (cả hai <2% device).

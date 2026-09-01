@@ -20,17 +20,18 @@ board DE10-Standard**.
 **Kết quả chính tính tới 2026-06-18:**
 
 - **Độ chính xác:** 94.65% / macro-F1 0.9396 trên tập Chapman (4 lớp AFIB/GSVT/SB/SR,
-  patient-independent 70/15/15), với mô hình chỉ **654 tham số**.
+  patient-independent 70/15/15), với mô hình chỉ **640 tham số**.
 - **Bit-exact:** 21 điểm kiểm tra (checkpoint) mỗi mẫu khớp tuyệt đối giữa Python và RTL —
   `max|diff| = 0 LSB` trên 15.312 phần tử so sánh. INT8 không gây mất mát so với float (cùng 94.65%).
 - **Phần cứng:** một inference trong **5.216 chu kỳ ≈ 52.16 µs @100 MHz** (xác định, không biến
-  thiên), dùng **2.201 ALM (5%)** và **28 DSP (25%)** của thiết bị 5CSXFC6D6F31C6, Fmax 104.85 MHz.
+  thiên), dùng **2.120 ALM (5%)** và **28 DSP (25%)** của thiết bị 5CSXFC6D6F31C6,
+  Fmax **108.46 MHz**.
 - **Trên board:** DE10-Standard qua cầu JTAG-to-Avalon đạt **94.27% (1004/1065)**, tái lập kết
   quả mô phỏng.
-- **Năng lượng:** ≈10.3 µJ/inference (dynamic) — phù hợp giám sát đeo liên tục (wearable).
-- **Cross-dataset:** một bitstream chạy được cả Chapman và PTB-XL nhờ cơ chế nạp lại trọng số
-  runtime qua Avalon; nghiên cứu transfer cho thấy lượng tử hoá INT8 **không** gây mất mát
-  generalization (toàn bộ drop là do distribution shift).
+- **Năng lượng:** 805.53 mW → **42.02 µJ/inference** (kèm hạn chế về độ tin cậy, Mục 4.5).
+- **Cross-dataset:** nghiên cứu transfer cho thấy lượng tử hoá INT8 **không** gây mất mát
+  generalization — toàn bộ drop là do distribution shift, ở cả near-transfer (Ningbo) lẫn
+  far-transfer (Georgia).
 
 Phần software, hardware và đánh giá đã hoàn tất. Phần còn lại nằm ở **viết bài** (đường găng):
 hoàn thiện draft ICDV, bảng SoTA, references, và các bước liêm chính/báo cáo.
@@ -72,7 +73,7 @@ MaxPool stride 5; rồi Global Average Pooling (GAP) → Fully-Connected (8→4)
 
 - **ReLU chỉ sau Conv4** — giữ đặc trưng âm của ECG ở Conv1–3.
 - Input 2500 mẫu INT8 (5 s @ 500 Hz, lead II). 4 lớp: AFIB / GSVT / SB / SR.
-- **654 tham số** — cực nhỏ, nhắm thiết bị đeo.
+- **640 tham số** — cực nhỏ, nhắm thiết bị đeo.
 
 ### 3.2 Lượng tử hoá power-of-2 QAT
 
@@ -147,44 +148,38 @@ Thay vì map toàn bộ mỗi lớp ra phần cứng riêng (fully-mapped như c
 so với fully-mapped: tái dùng một bộ PE cho mọi vị trí một lớp, đổi độ trễ tăng (xác định) lấy
 giảm logic/register lớn.
 
-### 4.4 Nạp lại trọng số runtime (Phase B01)
+### 4.4 Trọng số nạp sẵn trong ROM
 
-Bản baseline: trọng số conv bake vào bitstream qua `$readmemh` (FF-ROM). Bản weight-RAM: trọng số
-conv lưu 8 khối M10K (một per output-channel) nạp runtime qua Avalon (+ port bias/FC). Cho phép
-**một bitstream** chạy Chapman hoặc PTB-XL, là cơ chế bật cho nghiên cứu cross-dataset. Latency và
-accuracy **không đổi** (M10K sync-read thay 1-1 stage `w_packed`, giữ pipeline alignment, bit-exact).
+Toàn bộ trọng số (580 hệ số Conv INT8, 32 hệ số FC, bias INT32) được nạp một lần vào bitstream
+qua `$readmemh` dưới dạng ROM. Nhờ vậy lõi **không cần cổng bus để ghi trọng số**, loại bỏ logic
+giải mã địa chỉ ghi cùng các thanh ghi đệm — đây là lý do bản nộp giữ được tài nguyên ở mức tối
+thiểu. Đánh đổi: đổi bộ trọng số đòi hỏi tổng hợp lại bitstream, chấp nhận được vì mô hình đã cố
+định sau khi huấn luyện.
 
 ### 4.5 Số liệu phần cứng (Cyclone V 5CSXFC6D6F31C6, Quartus 25.1 Lite)
 
-| Metric | Baseline (FF-ROM) | + weight-RAM reload |
-|---|---:|---:|
-| ALM | 2.201 (5%) | 2.820 (7%) |
-| DSP18 | 28 (25%) | 28 (25%) |
-| Registers | 3.177 | 4.852 |
-| M10K | 20 (4%) | 28 (5%) |
-| Fmax (standalone, 85 °C) | 104.85 MHz | 108.94 MHz |
-| Latency | 5.216 cy (52.16 µs) | 5.216 cy (52.16 µs) |
-| Throughput | ~19.200 inf/s | ~19.200 inf/s |
+| Metric | Giá trị |
+|---|---:|
+| ALM | 2.120 / 41.910 (5%) |
+| DSP18 | 28 / 112 (25%) |
+| Registers | 3.158 |
+| M10K | 20 / 553 (4%) |
+| Block memory bits | 85.536 (2%) |
+| Fmax (standalone, 85 °C) | **108.46 MHz** |
+| Latency | 5.216 cy (52.16 µs @ 100 MHz) |
+| Throughput | ~19.200 inf/s (≈20.800 @ Fmax) |
 
-- Overhead weight-reload (+619 ALM, +8 M10K) đến từ logic nạp-được (read-address adder, 8-way
-  write decode, 40-bit assembly), **không** từ bộ nhớ (M10K = 0 ALM).
-- **Năng lượng** (PowerPlay, 95.6% toggle): tổng 623 mW (dynamic 198 mW, static 413 mW) →
-  **≈10.3 µJ/inference dynamic, 32.5 µJ total**. DSP chiếm ~68% dynamic → nối thẳng với lựa chọn
-  0-DSP-rescale ở khâu lượng tử.
-
-### 4.6 So sánh thiết kế: hai dataflow (DSE)
-
-Cùng model, cùng device, cùng bit-exact contract — chỉ khác cách map dataflow:
-
-| Trục | Production (8-PE channel-par) | SIMD-20 (position-par) | Tỉ lệ |
-|---|---:|---:|---:|
-| Latency | 5.216 cy (52.16 µs) | 2.755 cy (27.55 µs) | 1.89× nhanh |
-| Throughput @Fmax | 20.107 inf/s (104.85 MHz) | 42.427 inf/s (116.9 MHz) | 2.11× |
-| ALM | 2.201 (5%) | 5.948 (14%) | 2.70× |
-| DSP | 28 (25%) | 64 (57%) | 2.29× |
-| Fmax | 104.85 MHz | 116.9 MHz | +11% |
-
-→ Pareto: production = low-area/đơn giản; SIMD-20 = low-latency/diện tích cao. Cùng accuracy 94.65%.
+- Trên board thật (`jtag_top`, PLL 100 MHz): setup slack **+2.202 ns @ 100 MHz**, 0 vi phạm mọi
+  corner. Số Fmax standalone bao gồm margin I/O nên là số bảo thủ.
+- **Năng lượng** (PowerPlay): tổng **805.53 mW** (dynamic 377.72 mW, static 413.84 mW, I/O 13.97 mW)
+  → **42.02 µJ/inference tổng**, 19.70 µJ dynamic.
+- ⚠️ **Độ tin cậy**: báo cáo PowerPlay cho confidence **"Low"** (22.4% tín hiệu có toggle rate từ
+  mô phỏng, 2.9% không xác định) vì Quartus Lite không cung cấp mô hình trễ back-annotated
+  (SDF gate-level) cho Cyclone V → VCD chỉ lấy được ở mức RTL. Các số trên nên đọc là **ước lượng
+  bậc độ lớn**, dùng so sánh tương đối, không phải số đo tuyệt đối.
+- 💡 Điểm đáng chú ý (vững kể cả khi số tuyệt đối lệch): **static > dynamic** dù thiết kế chỉ dùng
+  5% ALM — die Cyclone V SoC chứa lõi ARM cứng rò rỉ cố định. Hệ quả: phần mà RTL tối ưu được chỉ
+  chiếm 47% ngân sách công suất → với thiết bị đeo, **chọn device die nhỏ hiệu quả hơn tối ưu logic**.
 
 ---
 
@@ -195,10 +190,14 @@ Hợp đồng verify là **bit-exactness** giữa Python và RTL. Golden Python 
 floor `sum>>2`; FC `nb=0`, raw INT32 logits vào argmax.
 
 Mỗi input: **21 checkpoint** (input INT8, 4 pool output, GAP, 4 FC logit). Testbench Questa nạp
-golden `.mem` và so từng checkpoint. Kết quả lõi production: **21/21 PASS**,
-**max|diff| = 0 LSB trên 15.312 so sánh** (3 mẫu test), latency xác định 5.216 chu kỳ. Có thêm test
-config/recover + GAP-mask cho đường runtime-reconfigurable. Topology tuỳ ý cũng đã sweep
-(`tb_topo_sweep.v` 48/48 bit-exact, mọi out_ch 1..8/lớp).
+golden `.mem` và so từng checkpoint. Kết quả: **21/21 PASS**, **max|diff| = 0 LSB trên 15.312 so
+sánh** (3 mẫu test), latency xác định 5.216 chu kỳ.
+
+Khung này còn được chạy lại với **bộ trọng số thứ hai** (Chapman-Ningbo, sau khi huấn luyện lại):
+**7/7 checkpoint, max|diff| = 0**. Điểm đáng chú ý là bộ này có tham số dịch `nb` khác (Conv2 đổi
+6 → 7 do hiệu chỉnh của dữ liệu mới), nên việc vẫn khớp-bit chứng minh mạch thực thi đúng **đặc tả
+lượng tử hoá**, không phụ thuộc một bộ số cụ thể nào. Ngoài ra có `tb_cp_block` 23 PASS và
+`tb_layer` 8 PASS ở mức đơn vị/tích hợp.
 
 Khung này biến "INT8 ≈ RTL" (vốn là hand-wave thường thấy) thành đẳng thức chứng minh được:
 độ chính xác báo cáo **đúng bằng** độ chính xác lõi triển khai sinh ra.
@@ -216,7 +215,7 @@ HPS Cyclone V → chuyển sang JTAG-to-Avalon; có thêm variant Nios V/m và v
 
 ### 6.2 Transfer Chapman ↔ PTB-XL
 
-Dùng đường weight-reload, cùng bitstream chạy trọng số PTB-XL (19.952 record, 500→250 Hz, lead II):
+Đánh giá phần mềm trên PTB-XL (19.952 record, 500→250 Hz, lead II):
 
 | Mode | Acc | F1-macro |
 |---|---:|---:|
@@ -240,8 +239,7 @@ phải tâm bài.
 | A' — quant ablation | A0/A0'/A2/A3/A4 + 5-fold + Chapman CM/ROC (Table 4) | ✅ Done |
 | A — cross-dataset | PTB-XL 6 mode C1–C6 + U0, decomposition C2==C6 | ✅ Done |
 | B — tách core/bus | `ecg_core.v` + wrapper mỏng, regression 21/21 | ✅ Done |
-| B01 — weight RAM reload | FF-ROM → M10K nạp runtime qua Avalon, 21/21 bit-exact | ✅ Done |
-| C — Synthesis + Power | Quartus thật: ALM 2201, DSP 28, Fmax 104.85; PowerPlay 623mW/10.3µJ | ✅ Done |
+| C — Synthesis + Power | Quartus thật: ALM 2120, Reg 3158, DSP 28, Fmax 108.46; PowerPlay 805.53mW/42.02µJ | ✅ Done |
 | D — On-board | JTAG-to-Avalon DE10 94.27%; variant Nios V/m + UART (UART chờ USB-TTL) | 🟡 JTAG done |
 | E — SoTA tables | Bảng A (5 model Chapman) + Bảng B (10 FPGA biomedical) → `SOTA_TABLE.md` | 🟡 Draft, Pareto chưa vẽ |
 | E01 — References | 19 mục format ICDV, 16/19 có DOI/ISBN → `paper/REFERENCES.md` | 🟡 Còn 3 mục cần chốt |
@@ -254,11 +252,13 @@ phải tâm bài.
 ## 8. Việc còn lại (đường găng = viết bài)
 
 **Khóa số liệu (blocking camera-ready):**
-1. 🔴 Thống nhất một con số accuracy (khuyến nghị 94.65%) giữa Table 4 và phần text.
-2. 🔴 Fmax: dùng 104.85 (baseline) / 108.94 (weight-RAM) / board ~125 — **không** dùng 137.6.
+1. 🔴 Tách rõ hai tập dữ liệu: Chapman (94.65%, dùng cho ablation + board) vs Chapman-Ningbo
+   (94.27% INT8 khớp-bit, dùng cho kết quả triển khai). Không trộn hai con số.
+2. 🔴 Fmax: dùng **108.46 MHz** (bản ROM, compile 2026-07-07); board jtag_top +2.202ns@100MHz.
+   **Không** dùng 104.85 (số cũ trước ROM build), **không** dùng 137.6 (internal path).
 3. 🟠 Cross-dataset: dùng số JSON (C3 0.9263, C4 0.9336).
 4. 🟠 On-board 1004/1065: tạo lại log cite-được.
-5. 🟠 Energy: xác nhận từ `.pow.rpt` PowerPlay.
+5. ✅ Energy: đã xác nhận từ `.pow.rpt` (805.53 mW / 42.02 µJ, confidence Low — có caveat).
 
 **References & SoTA:**
 6. 🔴 [17] CardioPatternFormer: tìm bản published có DOI (hoặc thay paper Transformer-ECG đã xuất bản).
@@ -278,9 +278,14 @@ phải tâm bài.
 ## 9. Kết luận
 
 Dự án đã đạt một lõi IP CNN-ECG **verify bit-exact** (max|diff| = 0 LSB), chạy thật trên FPGA
-DE10-Standard ở 94.27%, với footprint cực nhỏ (654 params, 2201 ALM, 28 DSP) và năng lượng thấp
-(≈10.3 µJ/inference) — đúng định hướng thiết bị đeo. Phương pháp lượng tử power-of-2 round-half-up
-cho cùng độ chính xác general-scale nhưng tiết kiệm 4 DSP, và khung verify 21-checkpoint biến độ
-chính xác phần mềm thành độ chính xác phần cứng chứng minh được. Phần kỹ thuật (software +
-hardware + đánh giá) đã hoàn tất; công việc còn lại tập trung vào hoàn thiện bài báo ICDV: khóa số
-liệu, references, bảng SoTA + Pareto, và các bước liêm chính/phát hành.
+DE10-Standard ở 94.27%, với footprint cực nhỏ (640 params, **2.120 ALM** = 5% thiết bị, 28 DSP)
+— đúng định hướng thiết bị đeo. Phương pháp lượng tử power-of-2 round-half-up cho cùng độ chính
+xác general-scale nhưng tiết kiệm 4 DSP, và khung verify 21-checkpoint biến độ chính xác phần mềm
+thành độ chính xác phần cứng chứng minh được. Phần kỹ thuật (software + hardware + đánh giá) đã
+hoàn tất; công việc còn lại tập trung vào hoàn thiện bài viết: khóa số liệu, references, bảng
+SoTA, và các bước liêm chính/phát hành.
+
+> **Phạm vi báo cáo.** Báo cáo này chỉ trình bày bản **RTL ROM** (trọng số nạp sẵn qua
+> `$readmemh`) chạy trên **DE10-Standard**. Các hướng đã thử nghiệm nhưng **không** thuộc phạm vi
+> nộp — biến thể SIMD-20 song song theo vị trí, cơ chế nạp trọng số runtime qua Avalon, và port
+> sang DE0-Nano/Cyclone IV — không được báo cáo ở đây.

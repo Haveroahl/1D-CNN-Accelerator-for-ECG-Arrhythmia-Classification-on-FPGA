@@ -1,0 +1,180 @@
+================================================================================
+  PROCESS.txt — TIẾN ĐỘ TOÀN THESIS (CNN Accelerator cho ECG Arrhythmia)
+  Cập nhật: 2026-06-23
+  Mục đích: ghi lại các bước ĐÃ LÀM, trạng thái hiện tại, hướng đã loại, việc còn lại.
+================================================================================
+
+--------------------------------------------------------------------------------
+0. ĐỊNH VỊ ĐỀ TÀI (quan trọng nhất — đọc trước)
+--------------------------------------------------------------------------------
+- Đề tài = THIẾT KẾ + KIỂM CHỨNG (Design & Verification) một CNN accelerator INT8
+  trên FPGA cho phân loại ECG. Trọng tâm = PHẦN CỨNG, không phải model CNN mới.
+- Venue thật = ICDV (không phải MDPI — kế hoạch MDPI cũ trong Proposal đã lỗi thời).
+- Điểm nhấn: bit-exact verification + DSE 2 dataflow (8-PE vs SIMD-20) + power-of-2 0-DSP.
+- KHÔNG bán: accuracy SoTA (model nhỏ không thắng model lớn), novelty kiến trúc HW
+  (8-PE time-multiplexed là chuẩn), novelty AF detection (đã bão hòa).
+- BÁN: footprint cực nhỏ (ALM 5% vs Liu 51%), bit-exact, power-of-2 0-DSP rescale,
+  tính tổng quát của kiến trúc (1 bitstream nhiều bài toán ECG 10s).
+
+--------------------------------------------------------------------------------
+1. SOFTWARE — ĐÃ DONE (baseline Chapman 4-class)
+--------------------------------------------------------------------------------
+[x] Model ECG_1DCNN pruned: channels 4-4-8-8, K=5, pad=2, pool/5 x4, GAP, FC 8->4.
+    ReLU chỉ sau Conv4. Input 2500 (10s lead II @250Hz). 640 params.
+[x] QAT-INT8 power-of-2 round-half-up: acc 94.65% / F1-macro 0.9396 (bit-exact = float).
+[x] Ablation quant A0/A0'/A2/A3/A4 + 5-fold: power-of-2 ≈ general-scale (Δ<std) nhưng
+    −4 DSP18 → Pareto-ưu. Round-half-up > floor (+0.38%). PTQ cũng đạt 94.08% (không sập).
+[x] Export flat_weights.hex (580 INT8). Golden .mem 21 checkpoints/sample.
+[x] Chapman CM + ROC (macro-AUC 0.967).
+[x] Cross-dataset PTB-XL (Phase A): 6 modes C1-C6. Zero-shot 77%, linear-probe 92.6%,
+    fine-tune 93.3%. C2==C6 → quant drop=0%, toàn bộ drop = distribution shift.
+
+--------------------------------------------------------------------------------
+2. HARDWARE — ĐÃ DONE (baseline 8-PE channel-parallel)
+--------------------------------------------------------------------------------
+[x] 8 RTL modules (cp_block/cp_engine/controller/gap_fc_argmax/ping_pong/input_sram/
+    top/avalon_slave). Tách core/bus (ecg_core.v + wrapper).
+[x] tb_top.v — 21/21 BIT-EXACT PASS với golden Python (3 samples).
+[x] Latency: 5216 cycles ≈ 52.16 µs @100MHz (deterministic). Throughput ~19,200 inf/s.
+[x] Weight ROM -> RAM reload qua Avalon (Phase B01) — enabling cross-dataset on-HW.
+[x] Runtime-reconfigurable topology: CONFIG window nạp in_ch/cp_en/nb/base runtime.
+    tb_topo 11/11 + tb_topo_sweep 48/48 bit-exact (mọi topology 1..8/layer).
+[x] Phase C synthesis THẬT (5CSXFC6D6F31C6): DSP 28/25%, ALM ~2851-2973 (7%),
+    Reg ~4843-4938, Fmax ~104-109MHz, timing PASS @100MHz.
+[x] Phase C PowerPlay: Total 623mW / Dyn 198mW / Static 413mW. Energy/inf 10.3µJ dyn
+    / 32.5µJ total. DSP = 68% dynamic (Cyclone V).
+[x] DE0-Nano port (Cyclone IV E) + GLS SDF: 247mW total, static −81% vs DE10,
+    12.9µJ/inf. Low-power story = CHỌN DEVICE ĐÚNG, không phải tối ưu logic.
+[x] Phase D on-board: JTAG-to-Avalon chạy thật DE10 = 94.27% (1004/1065) khớp Python.
+    + variant Nios V/m + variant UART (chờ module USB-TTL).
+
+--------------------------------------------------------------------------------
+3. DSE — SIMD-20 (Trục thứ 2 của paper)
+--------------------------------------------------------------------------------
+[x] Spec SIMD position-parallel (SIMD.md) + RTL ở worktree D:/Thesis101-simd
+    (branch feature/simd-spec). L=20 lane, ~1284 cy (~12.8µs), ~70 DSP.
+[~] So sánh DSE: 8-PE channel-parallel (52µs, footprint nhỏ) vs SIMD-20 position-parallel
+    (nhanh hơn, tốn tài nguyên hơn) — cùng accuracy 94.65% bit-exact, cùng device.
+- LƯU Ý: SIMD/position-parallel KHÔNG phổ biến cho ECG nhưng KHÔNG độc nhất (đã có
+  position-first dataflow JRTIP 2025). Pitch là DSE COMPARISON, không phải novelty.
+- L=20 gắn cứng Chapman 2500 (pool /5 đồng nhất). KHÔNG dùng lại được cho window khác.
+
+--------------------------------------------------------------------------------
+4. PHIÊN NÀY (2026-06-22/23) — KHẢO SÁT BÀI TOÁN + PROBE (định hướng)
+--------------------------------------------------------------------------------
+Bối cảnh: phản biện "CNN chỉ claim morphology", "nhãn Chapman không đáng tin",
+"kiến trúc 8-PE có gì phù hợp thật sự". Đã kiểm chứng + chạy probe để tìm hướng.
+
+[x] Xác nhận Chapman ĐỦ uy tín: grouping 11->4 do CARDIOLOGIST đề xuất (Zheng 2020,
+    Scientific Data/Nature), benchmark PhysioNet Challenge 2020/2021. Liu 2023 dùng
+    cùng grouping. => KHÔNG cần đổi dataset; phản biện "nhãn không đáng tin" là hiểu lầm.
+
+[x] Probe MIT-BIH beat morphology (N,L,R,A,V) — kiểm chứng kiến trúc học morphology:
+    - 4-4-8-8, window 256, pool 5/5/2/2, clean split (no leakage):
+        acc 97.42% / macro-F1 0.9354 / A(APC)-F1 0.802
+    - + FC hidden 8->16->5: TỆ HƠN (F1 0.9263, A 0.752) → hidden FC vô ích, nút thắt
+      không ở FC. ĐỪNG thêm hidden FC.
+    - Nới kênh 8-8-16-16 (window 256): acc 98.66% / F1 0.9619 / A 0.874 → capacity conv
+      LÀ nút thắt (nới kênh cứu lớp A). Nhưng params 640->2413, mất "tiny".
+    - 3-conv window 250 pool 5/5/5 (L=10 SIMD-friendly): (4,8,16) acc 98.07% / F1 0.9497
+      / A 0.848 — TỐT, ít params (933), ánh xạ SIMD L=10 sạch. Nới (8,16,16) lại tệ hơn
+      (overfit window ngắn).
+
+[x] Phân tích SIMD lane (L) cho window khác Chapman:
+    - L phải chia hết mọi out_len + bội mọi pool-stride.
+    - 256/pool-5/5/2/2: KHÔNG có L sạch (stride trộn 5,2). Per-layer len: 256/51/10/5/2.
+    - 250/pool-5/5/5 (3 conv): L=10 sạch (len 250/50/10).
+    - 625/pool-5/5/5/5: L=5. → ĐỀ XUẤT nếu làm SIMD cho beat: L=10, window 250, 3 conv.
+
+[x] Probe AF/non-AF (2 nhãn) — HƯỚNG MẠNH NHẤT, cùng input 2500 = KHÔNG đổi RTL:
+    Tất cả model 4-4-8-8 FC 8->2, 622 params, oversample TRAIN balanced.
+    ┌─────────────────────────┬──────────┬───────┬───────┬──────┬──────┐
+    │ Setup                   │ %AF      │ AUC   │ MacF1 │ Sens │ Spec │
+    ├─────────────────────────┼──────────┼───────┼───────┼──────┼──────┤
+    │ AFDB intra-patient      │ ~40%     │  —    │ 0.984 │  —   │  —   │ (acc 98.48, LEAKY)
+    │ AFDB INTER-patient 5fold│ 40.5%    │ 0.905 │ 0.820 │ 0.930│ 0.747│ (fold-2 collapse)
+    │ AFDB -> PTB-XL zeroshot │ 7.2%     │ 0.951 │ 0.767 │ 0.820│ 0.923│
+    │ Chapman in-dist         │ 20.5%    │ 0.981 │ 0.901 │ 0.899│ 0.941│
+    │ Chapman -> PTB-XL (z.s.)│ 7.2%     │ 0.968 │ 0.782 │ 0.899│ 0.918│ ★ cross SẠCH (cùng lead II)
+    │ Chapman -> AFDB (z.s.)  │ 40.5%    │ 0.862 │ 0.766 │ 0.809│ 0.741│ (lead khác = shift kép)
+    └─────────────────────────┴──────────┴───────┴───────┴──────┴──────┘
+    - Dataset có nhãn AF: AFDB ~40%, Chapman 20.9% (AFIB+AF), PTB-XL 7.2% (AFIB+AFLT).
+    - KẾT LUẬN: Chapman là nguồn train tốt nhất (~8500 bệnh nhân). Chapman->PTB-XL cùng
+      lead II = cross-dataset SẠCH, AUC 0.968 (generalize gần như không suy giảm).
+    - CAVEAT LEAD: AFDB dùng ECG1 (Holter) ≠ lead II (Chapman/PTB-XL resting) → Chapman
+      ->AFDB tụt (0.862) do SHIFT KÉP (lead + domain), không phải model dở.
+
+--------------------------------------------------------------------------------
+5. QUYẾT ĐỊNH METRIC CHO CROSS-DATASET (chốt 2026-06-23)
+--------------------------------------------------------------------------------
+Thứ tự ưu tiên (vì lệch lớp + lệch ngưỡng cross-dataset):
+  1. AUC          — số CHÍNH (không phụ thuộc ngưỡng, bất biến prevalence).
+  2. Sens + Spec  — CẶP bắt buộc (metric lâm sàng sàng lọc AF).
+  3. Macro-F1     — kèm theo (nhạy ngưỡng, không dùng kết luận generalization).
+  4. Accuracy     — gần như BỎ (lệch lớp → vô nghĩa; PTB-XL 7% AF, đoán toàn non-AF=93%).
+
+--------------------------------------------------------------------------------
+6. HƯỚNG ĐÃ LOẠI (ablation âm — đã đo, ĐỪNG thử lại)
+--------------------------------------------------------------------------------
+[x] INT4: mất ~19% acc kể cả general-scale (trần 75.6%), AFIB sập. INT8 = sweet-spot.
+[x] SNN conversion: naive ANN->SNN cap ~58% (maxpool+signed+feature-map nhỏ).
+[x] Depthwise-separable: NO-GO ở model nhỏ; INT8 power-of-2 sập 3.6-9.5pp.
+[x] Operand-gating idle PE: chỉ −1.2mW (<1%) trên Cyclone IV (MULT chỉ 8% dynamic).
+[x] Ping-pong pack 512×16: giảm M10K nhưng fail timing Avalon I/O.
+[x] HR fusion (cứu SB/SR): +13pp cross-dataset nhưng phá in-dist → không ship.
+[x] FC hidden layer (8->16->5) cho beat: tệ hơn, nút thắt không ở FC.
+[x] Trục B đo energy general vs power-of-2: bỏ (DSP-count estimate đủ cho C1).
+
+--------------------------------------------------------------------------------
+7. TRẠNG THÁI VIẾT BÀI (Phase E/F/K/L — đường găng còn lại)
+--------------------------------------------------------------------------------
+[~] Phase E  — SoTA tables (SOTA_TABLE.md): ~7 papers + Liu. Số từ search snippet =
+    CHƯA verify, phải mở paper gốc. Pareto chart chưa vẽ.
+[~] Phase E01 — REFERENCES.md: 19 mục, 16 có DOI/ISBN. Còn [17] CardioPatternFormer
+    (arXiv) cần bản published. THIẾU nhóm "kiến trúc accelerator/dataflow" (Sze/Eyeriss/
+    fpgaConvNet) — phần HW đối chiếu gần như chỉ Liu 2023 (quá đơn nguồn).
+[~] Phase F  — ICDV_draft.md ~6 trang (production 8-PE only). Có Abstract/Intro/RelWork/
+    Model/HW. 4 LỖ HỔNG phải sửa (Phase K): (1) đừng claim "thắng Liu +1.7pp" (do training
+    recipe, không do prune/HW) → tái khung thành "≈acc ở ½ params + ~9× ít ALM"; (2) mâu
+    thuẫn 94.65 headline vs 94.37 Table4 A2 → khóa 1 số; (3) power 623mW > Liu 66mW → bán
+    dynamic+area, tách static device-tax; (4) thêm dòng full(1244) vs pruned(640).
+[ ] Phase F  — GitHub public + Zenodo DOI.
+[ ] Phase K  — INTEGRITY_CHECK.md: provenance SẠCH (mượn arch Liu + tự train + prune +
+    HW folded riêng). Đạo văn ✅sạch, AI-voice 🟡 5 câu cần làm phẳng, tính-chính-trực-số
+    🔴 yếu nhất (4 lỗ hổng trên).
+[ ] Phase L  — PROGRESS_REPORT.md Word ~10 trang.
+
+--------------------------------------------------------------------------------
+8. VIỆC CÒN MỞ / CẦN QUYẾT (cập nhật khi tiến triển)
+--------------------------------------------------------------------------------
+- [ ] Quyết định: AF detection (cùng input 2500, KHÔNG đổi RTL) có trở thành một phần
+      câu chuyện "tính tổng quát 8-PE" trong paper không? — đang nghiêng CÓ (dùng làm
+      generality evidence, KHÔNG phải novelty).
+- [ ] Nếu dùng AF: báo cáo phải dùng INTER-patient (AFDB) + AUC/Sens/Spec, KHÔNG dùng
+      intra-patient (leaky) làm số chính — vì HW bit-exact => số SW leaky = số HW leaky.
+- [ ] Cross-dataset AF nên báo 3 mức (zero-shot / linear-probe / fine-tune) để công bằng
+      với cách ML refit feature (linear-probe = DL freeze conv + retrain FC = đối ứng đúng).
+- [ ] Threshold tuning (Youden's J) để nâng operating point cross-dataset (calibration,
+      không retrain) — chưa chạy.
+- [ ] Phase E/F/K/L là đường găng — chưa hoàn tất.
+
+--------------------------------------------------------------------------------
+9. FILE / SCRIPT PROBE PHIÊN NÀY (software/python/)
+--------------------------------------------------------------------------------
+- probe_mitbih_beat.py          — MIT-BIH NLRAV, 256, leaky (oversample-before-split)
+- probe_mitbih_beat_clean.py    — NLRAV clean split (no leakage)
+- probe_mitbih_fc16.py          — NLRAV + FC hidden 8->16->5 (kết quả âm)
+- probe_mitbih_8816.py          — NLRAV nới kênh 8-8-16-16
+- probe_mitbih_3conv250.py      — NLRAV 3-conv window 250 (L=10 SIMD-friendly)
+- probe_afdb_af.py              — AFDB AF/non-AF intra-patient
+- probe_afdb_interpatient.py    — AFDB AF/non-AF INTER-patient 5-fold
+- probe_afdb2ptbxl_af.py        — train AFDB -> zero-shot PTB-XL
+- probe_chapman_af.py           — Chapman AF/non-AF in-dist
+- probe_chapman2cross_af.py     — train Chapman -> zero-shot PTB-XL & AFDB
+- Reports: results/probe_mitbih/, results/probe_afdb/, results/probe_chapman_af/
+- CO_SO_LY_THUYET_kien_truc.md (paper/) — chương cơ sở lý thuyết model+dataflow.
+
+================================================================================
+  GHI CHÚ: file này là sổ tiến độ — cập nhật mỗi khi có bước mới. Số liệu chốt
+  để VIẾT BÀI lấy từ PAPER_DATA.md (không phải PROJECT.md/Proposal cũ).
+================================================================================

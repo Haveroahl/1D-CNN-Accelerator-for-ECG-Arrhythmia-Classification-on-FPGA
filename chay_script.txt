@@ -1,0 +1,28 @@
+isram có thể cài thiện tốc độ nạp được không ?
+
+Nếu reset thì mac (không có reset ) vẫn lưu giá trị cũ trong register, nếu start lại thì nó sẽ output ra giá trị này ?
+
+
+
+
+Thực hiện lại quy trình software để dồng bộ số liệu
+
+1. Huấn luyện mô hinh với data Chapman mở rộng
+2. Làm đầy đủ các bước của flow software : Huấn luyện, cắt tỉa - finetune, lượng tử hoá, trích trọng số, tạo golden
+ - sau bước tạo golden chạy lại phân loại mô hình với int8*int8 rồi từ dó lấy  so sánh bit
+3. Sau đó tạo plot với các bảng tham số đánh giá phân loại nhãn, tạo 2 bảng dánh giá float32 và int8
+4. Tạo file golden cho bộ test của Chapman mở rộng và Georgia. 
+- bộ test của Chapman 
+  + chọn 4 nhãn tạo golden để test simulation nhãn, lấy 1 golden êể test bit-exact
+  + toàn bộ golden để test xem độ chính xác có giống phần mềm
+- bộ data Georgia 
+  + chọn 4 nhãn tạo golden để test simulation nhãn , lấy 1 golden êể test bit-exact
+  + toàn bộ golden để test xem độ chính xác có giống phần mềm
+Đặt lại câu hỏi nếu phần này còn thiếu gì để tôi chốt.
+
+
+QuestaSim
+cd D:/Thesis101/hardware/fpga/simulation/questa
+do wave_tb_bitexact1.do
+run -all
+wave zoom full

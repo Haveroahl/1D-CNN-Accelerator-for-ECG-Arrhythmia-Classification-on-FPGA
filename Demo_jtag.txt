@@ -1,0 +1,171 @@
+================================================================================
+ DEMO HƯỚNG DẪN — jtag_top trên DE10-Standard (Phase D + Phase B01 weight load)
+================================================================================
+
+Mục tiêu: chạy CNN ECG accelerator đã verify lên board DE10-Standard, KHÔNG dùng
+HPS/CPU. PC điều khiển core qua JTAG-to-Avalon Master Bridge (USB-Blaster +
+System Console/Tcl). Đường này nạp ĐƯỢC CẢ weight (Phase B01) lẫn ECG data từ PC
+xuống cùng một .sof — đổi weight Chapman <-> PTB-XL không cần compile lại.
+
+Tài liệu chi tiết kiến trúc: hardware/fpga/soc/jtag_demo.md
+(lưu ý: jtag_demo.md mô tả bản 13-bit cũ; bản hiện tại là 14-bit + weight window,
+ phản ánh đúng trong file này.)
+
+--------------------------------------------------------------------------------
+0. ĐIỀU KIỆN CẦN
+--------------------------------------------------------------------------------
+- Quartus Prime 25.1std Lite  (D:\altera_lite\25.1std)
+- Board DE10-Standard, cáp USB-Blaster II (mini-USB cạnh JTAG)
+- Cấp nguồn board, gạt nút nguồn ON
+- Đã có file weight/data demo trong: hardware/fpga/soc/demo_data/
+    chapman_weights/ (w_ram0..7 + bias + FC)   <- weight nạp từ PC
+    chapman_test_ecg_int8.bin , chapman_test_labels.bin
+
+--------------------------------------------------------------------------------
+1. KIẾN TRÚC ĐƯỜNG DEMO
+--------------------------------------------------------------------------------
+  PC (System Console, Tcl: ecg_jtag_console.tcl)
+   |  master_write_32 / master_read_32
+   v
+  USB-Blaster II --JTAG TAP--> FPGA
+                                |
+        Qsys "jtag_system": JTAG-to-Avalon master + clock/reset bridge + ecg_core
+                                |  Avalon-MM (14-bit word address)
+                                v
+        ecg_accelerator_top = avalon_slave + ecg_core
+   jtag_top.v: core_pll 50->100MHz + reset sync, bọc jtag_system
+
+  HAI clock TÁCH BIỆT (hay nhầm):
+    - Core clock 100 MHz  (osc 50MHz -> core_pll x2)  -> inference 5216 cy = 52 us
+    - JTAG TCK   ~6-24MHz (USB-Blaster, độc lập)      -> chỉ truyền bit JTAG
+  Bottleneck demo = overhead phần mềm System Console (~4.5ms/lệnh), KHÔNG phải TCK.
+  Cách nhanh: GIẢM SỐ LỆNH (block write cả sample / cả khối weight trong 1 lệnh).
+
+--------------------------------------------------------------------------------
+2. BUILD BITSTREAM (.sof)
+--------------------------------------------------------------------------------
+Bitstream (.sof) = bản thiết kế phần cứng dạng nhị phân, nạp vào FPGA để biến
+chip trắng thành CNN accelerator.
+
+a) (CHỈ KHI đổi address map / sửa ecg_core_hw.tcl) Regenerate Qsys:
+     Quartus -> Tools -> Platform Designer -> mở soc/jtag_system.qsys
+     -> Generate HDL.   Kiểm: avs_address width=14, addressSpan=16384.
+   (Nếu KHÔNG đổi map thì bỏ qua — .qip đã sinh sẵn trong repo.)
+
+b) Mở project & compile:
+     Quartus -> File -> Open Project -> hardware/fpga/jtag_top.qpf
+     -> Processing -> Start Compilation   (hoặc nút ▶ Compile)
+   Kết quả: hardware/fpga/output_files/jtag_top.sof
+   Timing phải PASS @100MHz (bản hiện tại: slack +2.202ns, 0 violation mọi corner).
+
+   CLI thay cho GUI (PowerShell, trong hardware/fpga):
+     quartus_sh --flow compile jtag_top
+
+--------------------------------------------------------------------------------
+3. PROGRAM .sof VÀO BOARD
+--------------------------------------------------------------------------------
+GUI:
+  Quartus -> Tools -> Programmer
+  -> Hardware Setup... -> chọn "DE-SoC [USB-x]"
+  -> Auto Detect -> chọn device 5CSXFC6D6 (chuỗi FPGA, KHÔNG phải SOCVHPS)
+  -> double-click ô Program/Configure, chọn output_files/jtag_top.sof
+  -> Start.  Đèn báo "100% Successful".
+
+(.sof nằm trên SRAM của FPGA -> mất khi tắt nguồn, phải program lại mỗi lần bật.)
+
+--------------------------------------------------------------------------------
+4. CHẠY DEMO (nạp weight + ECG + inference từ PC)
+--------------------------------------------------------------------------------
+CÁCH A — GUI (System Console trong Quartus):
+  Quartus -> Tools -> System Debugging Tools -> System Console
+  (cửa sổ System Console mở ra, có ô "Tcl Console" ở dưới)
+  Tại ô Tcl Console gõ:
+     cd {D:/Thesis101/hardware/fpga/soc}     ;# dùng dấu / , bao trong {}
+     source ecg_jtag_console.tcl
+  -> script tự chạy load_weights -> loop test set -> in Accuracy.
+  Theo dõi tiến trình ngay trong ô Console; log ghi ra file cùng thư mục.
+
+CÁCH B — CLI (PowerShell):
+  cd hardware/fpga/soc
+  & "D:\altera_lite\25.1std\quartus\sopc_builder\bin\system-console.exe" `
+       --script=ecg_jtag_console.tcl
+
+(Cả hai cách chạy CÙNG file Tcl và cho kết quả giống nhau. GUI tiện xem log
+ trực tiếp + gõ tay từng lệnh để debug; CLI tiện chạy 1 phát không mở cửa sổ.)
+
+Script ecg_jtag_console.tcl tự động làm:
+  1. open_master       -> claim JTAG-to-Avalon master service
+  2. load_weights      -> đọc demo_data/chapman_weights/* -> ghi vào weight RAM
+                          (conv M10K + bias + FC) qua weight window (addr[13]=1)
+  3. loop test set:
+       load_ecg(sample) -> 1 block write 2500 word vào DATA WINDOW (byte 0x4000)
+       run_inference()  -> START (byte 0x0C=1), poll done (byte 0x10 bit1),
+                           đọc result (byte 0x14, class 0..3)
+       so với label -> đếm correct
+  4. in Accuracy + ghi log file ecg_jtag_<YYYYMMDD>_<HHMMSS>.log
+
+4 class: AFIB(0), GSVT(1), SB(2), SR(3).
+
+CHẠY THỬ NHANH (sanity, vài sample): sửa đầu file ecg_jtag_console.tcl:
+     set ::MAX_SAMPLES 3        ;# 0 = toàn bộ test set
+
+ĐỔI WEIGHT (demo C3 cross-dataset — KHÔNG compile lại):
+     set ::WEIGHT_DIR "demo_data/ptbxl_weights"
+   -> cùng .sof, chỉ nạp bộ weight khác từ PC. Đây là điểm chính của Phase B01.
+
+GÕ TAY TỪNG LỆNH trong System Console GUI (demo trực quan 1 sample):
+   source ecg_jtag_console.tcl    ;# nếu chỉ muốn nạp proc, set ::MAX_SAMPLES 0
+                                   ;# rồi comment dòng gọi main ở cuối file
+   set m [open_master]            ;# claim master
+   load_weights $m                ;# nạp weight Chapman
+   load_ecg $m 0                  ;# nạp sample index 0
+   puts [run_inference $m]        ;# in class dự đoán (0..3)
+  -> tiện chiếu trên máy chiếu: thấy từng bước nạp/đọc, không trôi cả test set.
+
+--------------------------------------------------------------------------------
+5. ĐỌC KẾT QUẢ
+--------------------------------------------------------------------------------
+- Console in: 10 sample đầu + mỗi 50 sample + dòng cuối "Accuracy: c/n = x%".
+- File log ecg_jtag_<timestamp>.log: MỌI sample (flush từng dòng -> sống sót nếu
+  kênh JTAG rớt giữa chừng).
+- Kỳ vọng Chapman: ~94% (lần demo byte-path trước: 1004/1065 = 94.27%, khớp
+  Python 94.65%).
+
+--------------------------------------------------------------------------------
+6. AVALON REGISTER MAP (avalon_slave.v, 14-bit WORD addr; byte = word<<2)
+--------------------------------------------------------------------------------
+  word 0x0003 (byte 0x000C) W : start[0]          (kick inference, clear done)
+  word 0x0004 (byte 0x0010) R : status = {isram_free, done_latched, busy}
+                                bit0=busy bit1=done_latched bit2=isram_free
+  word 0x0005 (byte 0x0014) R : result[1:0]       (argmax class)
+  word 0x1000..0x19C3 (byte 0x4000..) W : DATA WINDOW  — 1 word = 1 byte ECG
+  -- WEIGHT WINDOW (addr[13]=1), Phase B01 --
+  word 0x2000.. (byte 0x8000) W : conv weight  word = 0x2000|(ramword<<4)|(oc<<1)|hi
+  word 0x2800.. (byte 0xA000) W : conv bias
+  word 0x3000.. (byte 0xC000) W : FC weight/bias (addr[5]=1 -> bias)
+
+--------------------------------------------------------------------------------
+7. TROUBLESHOOT
+--------------------------------------------------------------------------------
+- "No JTAG Avalon master found":
+    board chưa program jtag_top.sof, hoặc USB-Blaster chưa nhận. Program lại,
+    kiểm Hardware Setup chọn đúng "DE-SoC".
+- Program thấy 2 device (HPS + FPGA): chọn ĐÚNG device FPGA 5CSXFC6D6.
+- Demo chạy nhưng accuracy ~25% (đoán mò): weight chưa nạp -> kiểm load_weights
+    chạy trước loop, kiểm ::WEIGHT_DIR trỏ đúng thư mục.
+- Kênh JTAG rớt giữa chừng: chạy lại; log đã flush nên biết dừng ở sample nào.
+- Timing fail khi compile: kiểm clk đã pin (jtag_top dùng core_pll + jtag_top.sdc).
+
+--------------------------------------------------------------------------------
+8. FILE LIÊN QUAN
+--------------------------------------------------------------------------------
+  hardware/fpga/jtag_top.qpf / .qsf   : project JTAG variant (source ecg_common.qsf)
+  hardware/fpga/soc/jtag_top.v        : top synth (PLL + reset + wrap jtag_system)
+  hardware/fpga/soc/jtag_top.sdc      : constraint 50MHz osc + PLL
+  hardware/fpga/soc/jtag_system.qsys  : Qsys system (JTAG master + bridge + ecg_core)
+  hardware/fpga/soc/ecg_core_hw.tcl   : component def Avalon slave 14-bit, span 16384
+  hardware/fpga/soc/ecg_jtag_console.tcl : host driver (load_weights/load_ecg/run/log)
+  hardware/fpga/soc/jtag_demo.md      : tài liệu kiến trúc chi tiết (bản 13-bit cũ)
+  hardware/RTL/avalon_slave.v         : bus adapter (legacy regs + DATA + WEIGHT window)
+
+================================================================================

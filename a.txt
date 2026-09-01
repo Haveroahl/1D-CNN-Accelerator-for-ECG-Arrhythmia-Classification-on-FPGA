@@ -1,0 +1,46 @@
+Thiết kế RTL cho biến thể SIMD position-parallel của ECG CNN accelerator.
+
+## Bối cảnh
+- Spec đầy đủ nằm ở SIMD.md trên branch `feature/simd-spec`.
+- ⚠️ KHÔNG `git checkout` (working tree hiện tại đang bẩn, sẽ bị chặn + ảnh hưởng branch khác).
+  THAY VÀO ĐÓ tạo worktree riêng để không đụng branch/working tree nào:
+    `git worktree add ../Thesis101-simd feature/simd-spec`
+  rồi làm việc trong `../Thesis101-simd` (SIMD.md ở root thư mục đó). ĐỌC SIMD.md TRƯỚC TIÊN —
+  nó là specification chính, đã chốt mọi quyết định kiến trúc.
+- Production hiện tại (channel-parallel 8-PE) ở `hardware/RTL/` — đã verify 21/21 bit-exact,
+  ~137.6 MHz. KHÔNG sửa production; SIMD là variant RIÊNG, đặt file mới (vd hardware/RTL_simd/).
+- Đọc PROJECT.md + hardware/System_Design.md để nắm model (4,4,8,8, K=5, pad=2),
+  quant spec (power-of-2 round-half-up, nb/w_shift per layer), và các module production
+  để TÁI DÙNG chỗ nào spec nói "giữ" (gap_fc_argmax, avalon_slave, read-addr MUX).
+
+## Mục tiêu
+Variant tối ưu latency: L=20 position-parallel, ~1284 cy ước tính (~4.1× vs production 5216 cy),
+đổi lại ~70 DSP + controller phức tạp hơn. Mọi chi tiết trong SIMD.md (§0–§13).
+
+## Yêu cầu khi code
+- Bám SIMD.md §13 (cheat-sheet điểm quyết định) làm checklist.
+- Bit-exact contract: giữ y production (SIMD.md §12) — power-of-2, nb={8,6,6,7,0},
+  w_shift={6,6,6,7,8}, input_shift=2, round-half-up, bias fold vào acc init, GAP floor(sum/4).
+- Verify: golden phải MỞ RỘNG so production (SIMD.md §12) — thêm checkpoint TRƯỚC pool
+  (production golden sau-pool KHÔNG bắt được lỗi biên SIMD bị MaxPool che).
+
+## Thứ tự đề xuất (bottom-up, verify từng bước)
+1. Khối 20-lane × 5-tap MAC + 20 accumulator + 20 requantize (SIMD.md §2, mục khối 20-lane).
+2. Pool 4 cây-max combinational, 2-stage pipeline (§2b, §5).
+3. Multi line-buffer (8 buffer, sâu 24) + tap 20 cửa sổ + mồi (§4).
+4. Ghi wide M10K 4-pos/word — Phương án B (§6).
+5. Input buffer wrapper + core streaming — Mô hình 2 (§3b).
+6. Padding PP4+PP1+lane-valid (§7) — VERIFY KỸ boundary, đặc biệt Conv4.
+7. Controller 3 vòng lồng oc×block×a + pha mồi (§8).
+8. Nối GAP/FC/Argmax + read-addr MUX (giữ từ production, §9).
+
+## Lưu ý rủi ro (từ spec)
+- Conv4 là layer khổ nhất (ít position, nhiều in-channel, pad nặng) — verify kỹ nhất.
+- Weight fan-out 100 → dùng W1 (4 bản nhóm), nâng W3 (20 bản) nếu synth fail (§2b). KHÔNG dùng W2 (+1 latency).
+- Bug biên padding là rủi ro cao nhất (alignment off-by-one) — golden phải có checkpoint trước-pool
+  + mọi channel + nhiều mẫu.
+- Fmax SIMD CHƯA synth — phải quartus_map+fit+sta mới chốt (Quartus tại D:\altera_lite\25.1std).
+
+Bắt đầu: tạo worktree (`git worktree add ../Thesis101-simd feature/simd-spec`), vào đó,
+đọc SIMD.md, rồi đề xuất kế hoạch implement chi tiết (file nào, thứ tự, golden mở rộng thế nào)
+TRƯỚC khi viết code. Hỏi tôi nếu có chỗ spec chưa rõ.

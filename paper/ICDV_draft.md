@@ -119,7 +119,7 @@ K=5, padding 2), each followed by max-pooling with stride 5, then global average
 (GAP), a fully-connected (FC) layer (8→4), and argmax (Fig. 1). The input is 2,500 INT8
 samples (5 s of single-lead — lead II — ECG at 500 Hz). ReLU is applied **only after Conv4**,
 deliberately preserving negative ECG morphology in Conv1–3. The four classes are AFIB, GSVT,
-SB, and SR. The pruned model has **654 parameters**.
+SB, and SR. The pruned model has **640 parameters**.
 
 The per-stage tensor shapes are: 2500×1 → 500×4 → 100×4 → 20×8 → 4×8 → GAP(8) → FC(4).
 
@@ -322,8 +322,11 @@ Using the weight-reload path, the same bitstream evaluates the model on two inde
 datasets, zero-shot (no fine-tuning), under a 4-class mapping identical to Chapman's. On the
 Ningbo database (33,143 records, after excluding the Chapman-Shaoxing half that shares the
 JS-numbered archive to prevent train/test leakage), zero-shot INT8 accuracy is **0.9257**
-(macro-F1 0.918, macro-AUC 0.987; all classes AUC ≥ 0.98). On the more distant PTB-XL database
-(German cohort, different annotation convention), zero-shot accuracy is **0.7714**. In both
+(macro-F1 0.918, macro-AUC 0.987; all classes AUC ≥ 0.98). Ningbo was acquired on
+different hardware (Zhejiang Cachet Jetboom devices at Ningbo First Hospital) than the GE MUSE
+system used for Chapman-Shaoxing, so part of the residual shift is instrumentation, not just
+patient population. On the more distant PTB-XL database (German cohort, different annotation
+convention), zero-shot accuracy is **0.7714**. In both
 cases the INT8 zero-shot (C2) exactly equals the float32 zero-shot (C6) — so the entire
 transfer gap is **distribution shift, not quantization**: power-of-two INT8 adds 0%
 generalization loss. The two datasets bracket the generalization spectrum (small shift /

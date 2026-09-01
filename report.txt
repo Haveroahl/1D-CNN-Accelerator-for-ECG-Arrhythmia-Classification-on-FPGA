@@ -1,0 +1,308 @@
+================================================================================
+ REPORT THESIS — PHẦN SOFTWARE
+ CNN Accelerator cho phân loại rối loạn nhịp tim (ECG Arrhythmia) trên FPGA
+================================================================================
+
+Tài liệu này tổng hợp nội dung phần software (PyTorch ML pipeline) phục vụ viết
+báo cáo thesis. Mọi số liệu được trích từ code thực tế và file kết quả đã chạy:
+  - software/python/model/model.py, prune_finetune.py, quantization/qat_int8.py
+  - results/ablation_quant/TABLE4_FINAL.md
+  - results/cross_eval/ptbxl_cross_eval.json
+  - results/ablation_quant/kfold/kfold_summary.json
+
+
+================================================================================
+ 1. TỔNG QUAN PIPELINE SOFTWARE
+================================================================================
+
+Bài toán: phân loại 4 nhóm nhịp tim từ tín hiệu ECG 1 chuyển đạo (lead II):
+  AFIB (0) — rung nhĩ
+  GSVT (1) — nhịp nhanh trên thất (ST/SVT/AT/AVNRT/AVRT/SAAWR gộp)
+  SB   (2) — nhịp chậm xoang
+  SR   (3) — nhịp xoang bình thường (SR/SA)
+
+Toàn bộ pipeline gồm 4 giai đoạn nối tiếp, mỗi giai đoạn là một script độc lập:
+
+  [1] train.py
+        Huấn luyện model float32 gốc (dense, 1244 tham số).
+        → results/best_model.pth
+
+  [2] prune_finetune.py
+        Cắt tỉa kênh có cấu trúc (structured channel pruning) + fine-tune.
+        Dense 1244 params → pruned 654 params (kênh 4-4-8-8).
+        → results/best_model_pruned.pth
+
+  [3] quantization/qat_int8.py
+        Quantization-Aware Training (QAT) INT8 power-of-2, convert + eval bit-exact.
+        → results/qat_int8/model_qat_int8.pth (checkpoint deploy chính)
+
+  [4] export_weights_int8.py + generate_golden.py
+        Export flat_weights.hex (580 INT8 entries) cho ROM phần cứng.
+        Sinh 21 golden checkpoint/sample để verify Python ↔ RTL bit-exact.
+
+Đặc điểm thiết kế xuyên suốt (lý do quyết định ở Mục 4):
+  - Model 1D-CNN cực nhẹ (654 tham số) hướng tới wearable/edge.
+  - KHÔNG có ReLU sau Conv1-Conv3, chỉ ReLU sau Conv4 → giữ đặc trưng âm của ECG.
+  - Số kênh là luỹ thừa 2 (4,4,8,8) → ánh xạ thẳng xuống phần cứng song song.
+  - Lượng tử hoá power-of-2 → rescale chỉ cần shift + add, 0 nhân (0 DSP).
+
+
+================================================================================
+ 2. DỮ LIỆU VÀ TIỀN XỬ LÝ
+================================================================================
+
+Dataset chính — Chapman ECG (Zheng et al. 2020):
+  - 10.646 bản ghi ECG 12 chuyển đạo, 5000 mẫu (500 Hz × 10 s).
+  - 11 nhãn rhythm gốc → ánh xạ về 4 lớp (theo Zheng 2020).
+  - Chỉ dùng lead II (index=1).
+
+Tiền xử lý (utils/dataset.py):
+  1. Load CSV → trích lead II.
+  2. Downsample 500 → 250 Hz (scipy.signal.resample) → 2500 mẫu/bản ghi.
+  3. Chuẩn hoá Z-score từng bản ghi: (x − μ) / (σ + 1e-8) → zero-mean, unit-var.
+  4. Loại bản ghi ngắn hơn 3,85 s.
+
+Chia tập: patient-independent 80/10/10 (train/val/test), seed=42, permutation
+cố định bằng RandomState (tái lập được, không đụng global RNG).
+
+  Mỗi item dataset trả về: (ecg[2500], label, heart_rate)
+
+Dataset cross-dataset — PTB-XL:
+  - 21.799 bản ghi, 500 Hz, 10 s; 19.952 bản ghi map được về 4 lớp.
+  - Downsample 500→250 Hz, lead II, Z-score, window 2500 — cùng pipeline Chapman.
+  - Dùng để đánh giá khả năng generalize (Mục 5.3).
+
+
+================================================================================
+ 3. MÔ HÌNH AI — KIỂU MÔ HÌNH, CÁCH HỌC, THUẬT TOÁN VẬN HÀNH
+================================================================================
+
+3.1. Kiểu mô hình
+-----------------
+Mạng nơ-ron tích chập 1 chiều (1D Convolutional Neural Network) cho phân loại
+chuỗi thời gian (time-series classification). Đây là mạng feed-forward học có
+giám sát (supervised learning), tối ưu bằng gradient descent.
+
+Lý do chọn 1D-CNN (không phải RNN/LSTM/Transformer):
+  - ECG là tín hiệu 1 chiều, đặc trưng hình thái (P-QRS-T) mang tính cục bộ →
+    tích chập với kernel nhỏ (K=5) bắt được hình dạng sóng rất hiệu quả.
+  - CNN có tính song song cao, không hồi tiếp tuần tự như RNN → ánh xạ thẳng
+    xuống phần cứng FPGA (8 PE chạy song song), độ trễ xác định (deterministic).
+  - Số phép tính nhỏ, dễ lượng tử hoá INT8 → phù hợp wearable năng lượng thấp.
+
+3.2. Kiến trúc (model deploy — pruned 4,4,8,8)
+----------------------------------------------
+  Input (2500 mẫu INT8, lead II)
+   → Conv1 (1→4,  K=5, pad=2)            → MaxPool /5 → 500×4   [no ReLU]
+   → Conv2 (4→4,  K=5, pad=2)            → MaxPool /5 → 100×4   [no ReLU]
+   → Conv3 (4→8,  K=5, pad=2)            → MaxPool /5 →  20×8   [no ReLU]
+   → Conv4 (8→8,  K=5, pad=2) + ReLU     → MaxPool /5 →   4×8   [+ReLU]
+   → GAP (Global Average Pooling) → vector 8 chiều
+   → FC (8→4)  → logits 4 lớp  → Argmax → class (0-3)
+
+  Tổng tham số sau prune: 654 (so với 1244 dense).
+
+3.3. Các "thuật toán" thành phần và cách vận hành
+-------------------------------------------------
+(a) Convolution 1D (cross-correlation):
+      y[c_out, t] = Σ_{c_in} Σ_{k=0..4} w[c_out, c_in, k] · x[c_in, t+k−2] + b[c_out]
+    - padding=2 giữ nguyên độ dài (same-conv).
+    - Dùng cross-correlation (không lật kernel) — khớp đúng hành vi phần cứng,
+      nên golden Python và RTL trùng khít.
+
+(b) MaxPool /5: lấy max trên cửa sổ 5 mẫu, stride=5 → giảm độ dài 5 lần mỗi tầng.
+    Chọn MaxPool (không AvgPool) để giữ đỉnh sóng (spike R) — đặc trưng quan trọng.
+
+(c) ReLU chỉ sau Conv4: f(x)=max(0,x). (Lý do bố trí ReLU — xem Mục 4.1.)
+
+(d) GAP (Global Average Pooling): trung bình theo trục thời gian, 4×8 → 8.
+    Trên phần cứng dùng floor division nguyên (sum>>2) thay vì chia float.
+    → giảm tham số (không cần flatten + FC lớn), chống overfit, ổn định độ dài.
+
+(e) FC (Fully-Connected) 8→4: ánh xạ tuyến tính ra 4 logit.
+
+(f) Argmax: chọn lớp có logit lớn nhất. Không cần softmax khi suy luận (argmax
+    bất biến với scale) → phần cứng bỏ qua softmax, tiết kiệm tài nguyên.
+
+3.4. Quá trình học
+------------------
+Hàm mất mát:  CrossEntropyLoss (phân loại đa lớp).
+Tối ưu:       Adam.
+
+Huấn luyện float32 gốc (train.py):
+  - 100 epoch, batch=128, lr 1e-3 → 1e-4 (MultiStepLR, giảm ×0.1 tại epoch 50).
+  - Lưu checkpoint tốt nhất theo val_loss thấp nhất.
+  - Seed=42 (numpy + torch) để tái lập.
+
+Fine-tune sau prune (prune_finetune.py):
+  - Phase 1: 30 epoch @ lr 1e-3 (phục hồi sau khi cắt kênh).
+  - Phase 2: 20 epoch @ lr 1e-4 (tinh chỉnh).
+  - Giữ checkpoint val_loss tốt nhất.
+
+QAT (qat_int8.py):
+  - Khởi tạo từ checkpoint pruned float.
+  - Fake-quantize cả weight và activation trong khi train (mô phỏng INT8).
+  - Dùng Straight-Through Estimator (STE): forward quantize+dequantize,
+    backward cho gradient đi thẳng (đạo hàm round = 0 nên phải bỏ qua).
+  - Scale học bằng EMA của abs_max qua các batch (momentum=0.01).
+  - lr 1e-4. Trọng số học cách "co" vào dải INT8 một cách tự nhiên.
+
+
+================================================================================
+ 4. LÝ THUYẾT XÂY DỰNG MODEL — LÝ DO PRUNING & CHỌN LƯỢNG TỬ HOÁ
+================================================================================
+
+4.1. Lý do các quyết định kiến trúc
+-----------------------------------
+- KHÔNG ReLU ở Conv1-3: ECG có thành phần âm mang thông tin (sóng S, đoạn ST
+  hạ, sóng Q). ReLU sớm sẽ cắt sạch nửa âm → mất đặc trưng hình thái. Chỉ đặt
+  ReLU sau Conv4 (ngay trước GAP/FC) để có phi tuyến tối thiểu mà vẫn giữ feature.
+- Kênh luỹ thừa 2 (4,4,8,8): để khớp 8 PE song song trên phần cứng (Conv4 IN=8,
+  OUT=8 là tầng lớn nhất, làm chuẩn sizing). Layer nhỏ hơn là subset.
+- GAP thay flatten: giảm mạnh tham số FC, chống overfit trên dataset nhỏ.
+
+4.2. Lý do Pruning (cắt tỉa)
+----------------------------
+Mục tiêu: giảm tham số/tài nguyên phần cứng (DSP, M10K, ALM) cho wearable mà
+giữ accuracy. Dense 1244 → pruned 654 (giảm ~47%).
+
+Phương pháp: structured channel pruning (cắt cả kênh đầu ra, không cắt lẻ
+trọng số) — vì chỉ cắt theo kênh mới giảm được tài nguyên phần cứng thực sự
+(unstructured pruning tạo ma trận thưa, phần cứng vẫn phải cấp đủ MAC).
+
+Xếp hạng kênh để giữ/bỏ: Taylor expansion bậc 1 (Molchanov et al. 2017):
+      I_i = | E[ (∂L/∂h_i) · h_i ] |
+  - h_i là activation kênh i, ∂L/∂h_i là gradient của loss theo nó.
+  - Kênh có I_i lớn = đóng góp nhiều vào loss → giữ lại.
+  - Ưu điểm so với chỉ L1-norm trọng số: Taylor có dùng dữ liệu (gradient) nên
+    đánh giá tầm quan trọng theo *tác động lên nhiệm vụ*, không chỉ độ lớn weight.
+  - Fallback L1-norm khi không có data loader.
+  - Mục tiêu giữ: Conv1 4/4, Conv2 4/8, Conv3 8/8, Conv4 8/16; FC co theo Conv4.
+
+Sau prune, fine-tune 50 epoch để phục hồi accuracy.
+
+4.3. Lý do chọn lượng tử hoá Power-of-2 INT8
+--------------------------------------------
+Sơ đồ INT8 power-of-2 (per-layer shift):
+      shift_bits nb = floor(log2(127 / abs_max))
+      x_int8  = clamp(round(x · 2^input_shift), −127, 127)
+      w_int8  = clamp(round(w · 2^w_shift),     −127, 127)
+      acc_int32 = conv(x_int8, w_int8) + bias_scaled
+      out_int8  = clamp( round_half_up(acc_int32 / 2^nb), −127, 127 )
+      round_half_up(x) = (x + 2^(nb-1)) >> nb
+
+  nb per layer:      conv1=8, conv2=6, conv3=6, conv4=7, fc=0
+  w_shift per layer: conv1=6, conv2=6, conv3=6, conv4=7, fc=8
+  input_shift = 2
+
+Lý do KEY — vì sao power-of-2 thay vì general-scale (scale ∈ ℝ):
+  - General-scale rescale cần 1 phép NHÂN (multiplier) mỗi tầng → tốn DSP.
+  - Power-of-2 rescale chỉ cần dịch bit (barrel shifter) + cộng → 0 DSP cho rescale.
+  - Tiết kiệm 4 DSP18 (đo được, xem Mục 5.1) → ít dynamic power → phù hợp wearable.
+
+Lý do round-half-up (KHÔNG floor truncation):
+  - Floor (arithmetic shift đơn thuần) gây bias làm tròn xuống có hệ thống.
+  - Round-half-up = (acc + 2^(nb-1)) >> nb sửa bias đó → +0.38% accuracy, 0 DSP.
+  - Đây là điểm cải tiến so với prior work fully-mapped (Liu 2023 dùng floor).
+
+Lý do INT8 (không INT4): xem bảng bit-width Mục 5.1 — INT4 mất ~19% accuracy,
+AFIB sập (F1 0.42), do model giữ activation âm dải rộng (no-ReLU) — 8 mức INT4
+không đủ resolution cho hình thái ECG. INT8 là sweet-spot.
+
+Lý do QAT (vs PTQ): QAT cho model học bù sai số lượng tử. Tuy nhiên PTQ
+power-of-2 cũng đạt 94.08% (chỉ kém QAT ~0.29%) → INT8 power-of-2 *robust*,
+QAT không bắt buộc nhưng được dùng cho checkpoint deploy chính.
+
+
+================================================================================
+ 5. KẾT QUẢ & Ý NGHĨA CHO BÀI TOÁN THỰC TẾ
+================================================================================
+
+5.1. Ablation lượng tử hoá (Table 4) — đóng góp C1
+--------------------------------------------------
+Dataset Chapman, eval bit-exact INT8 (== đường tính RTL), pruned 654 params,
+patient-independent 70/15/15, seed=42.
+
+  Variant                     Scale          Train         Acc%    F1      DSP
+  ─────────────────────────────────────────────────────────────────────────────
+  A1  Float32 baseline        —              —             94.65   0.9402  —
+  A0  PTQ power-of-2          2^nb           calibrate     94.08   0.9338  +0
+  A0' PTQ general            abs_max/127     calibrate     94.46   0.9380  +4
+  A2  QAT power-of-2 (ours)   2^nb           fake-quant    94.37   0.9364  +0
+  A3  QAT general            abs_max/127     fake-quant    94.65   0.9398  +4
+  A4  QAT power-of-2 floor    2^nb           fake-quant    93.99   0.9328  +0
+
+  Đọc bảng:
+   - A2 (ours) vs A1 float:   −0.28% — gap lượng tử rất nhỏ.
+   - A2 (ours) vs A3 general: −0.28% acc NHƯNG tiết kiệm 4 DSP18.
+   - A2 vs A4 floor:          +0.38% — round-half-up có lợi (RQ2).
+   - A0 PTQ vs A2 QAT:        QAT +0.29% — QAT bù một phần thiệt hại scale thô.
+
+  Robustness 5 test-fold (mean ± std): std 0.4–0.9% ≥ mọi khác biệt giữa các
+  variant → khác biệt accuracy nằm trong nhiễu; điểm CHẮC CHẮN duy nhất là
+  DSP cost (power-of-2 = 0, general = 4).
+
+  Bit-width ablation (vì sao INT8 không INT4):
+    A2 QAT INT8 (ours)        8/8   94.37%  F1 0.9364
+    QAT W4A4 power-of-2       4/4   69.95%  F1 0.660
+    QAT W4A4 general (ceiling)4/4   75.59%  F1 0.704  (AFIB F1 chỉ 0.42)
+    → INT4 mất ~19%, AFIB sập → INT8 là sweet-spot.
+
+  Kết luận C1 (defendable): "Power-of-2 INT8 đạt accuracy ngang general-scale
+  (Δ < std) trong khi loại bỏ hoàn toàn multiplier ở rescale (−4 DSP18) →
+  lựa chọn Pareto-ưu cho ECG accelerator năng lượng thấp."
+
+5.2. Hiệu năng in-distribution (Chapman) — model deploy
+-------------------------------------------------------
+Checkpoint deploy (model_qat_int8.pth), bit-exact INT8:
+  - Accuracy: 94.65% (= float, 21/21 checkpoint match RTL).
+  - F1-macro: 0.9396.
+  - AFIB recall: 0.9266.
+  Cross-eval C1 (Chapman in-dist, n=1065): acc 94.46%, F1-macro 0.9379,
+  per-class F1: AFIB 0.892 / GSVT 0.918 / SB 0.986 / SR 0.956.
+
+  → Ý nghĩa thực tế: model 654-tham-số đạt ~94.6% trên 4 lớp arrhythmia, AFIB
+    (rung nhĩ — quan trọng lâm sàng) recall ~0.93. Đủ tốt cho sàng lọc wearable.
+
+5.3. Nghiên cứu cross-dataset transfer (Chapman → PTB-XL) — đóng góp C3
+----------------------------------------------------------------------
+Câu hỏi: model INT8 train trên Chapman có generalize sang dataset khác không?
+Drop accuracy do lượng tử hay do distribution shift?
+
+  C1  Chapman in-distribution   acc 94.46%  F1 0.9379
+  C2  Zero-shot QAT-INT8        acc 77.14%  F1 0.6486
+  C3  Linear probe (retrain FC) acc 92.63%  F1 0.7745
+  C4  Full fine-tune            acc 93.29%  F1 0.7915
+  C6  Float32 zero-shot         acc 77.14%  F1 0.6486   (= C2)
+
+  Phát hiện cốt lõi:
+   - C2 == C6 → toàn bộ drop khi zero-shot là do DISTRIBUTION SHIFT, lượng tử
+     hoá INT8 KHÔNG gây thêm mất mát (quant drop = 0%). Đây là điểm mạnh để
+     bảo vệ phương pháp lượng tử trước reviewer.
+   - Linear probe (chỉ retrain FC) kéo từ 77% → 92.6% → conv features transfer
+     tốt, chỉ cần hiệu chỉnh tầng phân loại.
+   - SB/SR confusion là ranh giới lâm sàng (ngưỡng HR ~60 bpm), không phải lỗi
+     model — không giải được bằng class balancing.
+
+5.4. Ý nghĩa tổng hợp cho bài toán thực tế
+------------------------------------------
+Điểm nhấn (selling points) của phần software:
+  1. Model siêu nhẹ (654 params) vẫn đạt ~94.6% accuracy / F1 0.94 trên 4 lớp
+     arrhythmia → khả thi triển khai wearable/edge.
+  2. Lượng tử hoá power-of-2 INT8 KHÔNG làm mất accuracy (Δ < nhiễu) so với
+     general-scale, nhưng loại bỏ 4 DSP18 → tiết kiệm năng lượng → phù hợp
+     thiết bị đeo giám sát liên tục.
+  3. Bit-exact Python ↔ RTL (21 checkpoint) → đảm bảo phần cứng cho ĐÚNG kết quả
+     như model phần mềm, không có "INT8 simulation lệch RTL" như nhiều paper.
+  4. Cross-dataset study chứng minh: quant không phải nguồn lỗi; hạn chế thực sự
+     là distribution shift — định hướng đúng cho cải tiến tương lai (linear probe
+     trên dữ liệu đích là đủ, không cần re-train toàn bộ).
+
+Hỗ trợ trực tiếp cho hardware story:
+  - Power-of-2 → 0 DSP rescale → ít dynamic power → energy/inference thấp.
+  - flat_weights.hex (580 INT8) nhỏ gọn, nạp ROM/RAM dễ.
+  - Argmax-only output → bỏ softmax → phần cứng đơn giản.
+
+================================================================================
+ (Hết phần software. Phần hardware/synthesis/energy sẽ bổ sung sau.)
+================================================================================

@@ -1,0 +1,561 @@
+% =====================================================================
+%  BÁO CÁO GIỮA KỲ — KHÓA LUẬN TỐT NGHIỆP
+%  Thiết kế CNN Accelerator cho phân loại rối loạn nhịp tim ECG
+%  trên FPGA Intel Cyclone V
+%  SV: Lê Minh Đức (22200034)
+%
+%  TRÊN OVERLEAF: chọn compiler = XeLaTeX (Menu > Settings > Compiler).
+%    Dùng font chuẩn LaTeX = Latin Modern (bản Unicode của Computer Modern),
+%    nạp qua gói fontspec/unicode-math — có sẵn trên Overleaf, hỗ trợ tiếng Việt.
+% =====================================================================
+\documentclass[12pt,a4paper]{article}
+
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setdefaultlanguage{vietnamese}
+% Latin Modern = font chuẩn của LaTeX (Computer Modern hiện đại, có Unicode)
+\setmainfont{Latin Modern Roman}
+\setmonofont{Latin Modern Mono}  % monospace cho code/diagram block
+
+\usepackage{amsmath,amssymb}
+\usepackage{geometry}
+\geometry{a4paper,top=2.5cm,bottom=2.5cm,left=3cm,right=2cm}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{caption}
+
+% ----- màu & tiêu đề -----
+\definecolor{accent}{RGB}{31,58,95}
+\titleformat{\section}{\Large\bfseries\color{accent}}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\large\bfseries\color{accent}}{\thesubsection.}{0.5em}{}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.25}
+\captionsetup{font=it,labelsep=period}
+\setlist[itemize]{leftmargin=1.4em,itemsep=2pt,topsep=2pt}
+
+% ----- style cho code/diagram block -----
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  columns=fullflexible,
+  frame=none,
+  xleftmargin=1.2em,
+  keepspaces=true,
+}
+
+\begin{document}
+
+% =====================================================================
+%  TRANG BÌA
+% =====================================================================
+\begin{center}
+  \vspace*{1.5cm}
+  {\LARGE\bfseries\color{accent} BÁO CÁO GIỮA KỲ}\\[4pt]
+  {\LARGE\bfseries\color{accent} KHÓA LUẬN TỐT NGHIỆP}\\[18pt]
+  {\large\bfseries Thiết kế CNN Accelerator cho phân loại rối loạn nhịp tim ECG\\
+   trên FPGA Intel Cyclone V}\\[2cm]
+\end{center}
+
+\begin{flushleft}
+  \hspace{2cm}\textbf{Sinh viên thực hiện:}\quad Lê Minh Đức (22200034)\\[6pt]
+  \hspace{2cm}\textbf{Giảng viên hướng dẫn:}\quad ThS.\ Nguyễn Thị Thiên Trang\\[2pt]
+  \hspace{2cm}\hphantom{\textbf{Giảng viên hướng dẫn:}}\quad ThS.\ Mã Khải Minh\\[6pt]
+  \hspace{2cm}\textbf{Ngày báo cáo:}\quad 01/07/2026\\
+\end{flushleft}
+
+\vfill
+
+\clearpage
+
+% =====================================================================
+%  1. TÓM TẮT
+% =====================================================================
+\section{Tóm tắt}
+
+Khóa luận thiết kế và triển khai một lõi IP CNN Accelerator nhẹ (lightweight) trên FPGA
+Intel Cyclone V nhằm phân loại rối loạn nhịp tim từ tín hiệu điện tim (ECG) đơn đạo trình
+(lead II). Dự án gồm hai phần gắn kết chặt chẽ: (i) một pipeline phần mềm PyTorch thực hiện
+huấn luyện --- cắt tỉa (pruning) --- lượng tử hóa INT8 lũy thừa hai (power-of-two), và (ii)
+một lõi phần cứng Verilog đã được kiểm chứng bit-exact với mô hình phần mềm và chạy thực tế
+trên kit DE10-Standard.
+
+\textbf{Các kết quả chính tính đến thời điểm báo cáo:}
+\begin{itemize}
+  \item \textbf{Độ chính xác:} $\sim$94\% / macro-F1 $\sim$0,93 trên tập Chapman (4 lớp
+        AFIB/GSVT/SB/SR, chia patient-independent 70/15/15), với mô hình chỉ 654 tham số.
+  \item \textbf{Bit-exact:} 21 điểm kiểm tra (checkpoint) mỗi mẫu khớp tuyệt đối giữa Python
+        và RTL --- $\max|\text{diff}| = 0$ LSB trên 15.312 phần tử so sánh. Lượng tử hóa INT8
+        không gây mất mát so với float32 (cùng $\sim$94\%).
+  \item \textbf{Phần cứng:} một inference hoàn tất trong 5.216 chu kỳ $\approx$ 52,16 µs @
+        100 MHz (xác định, không biến thiên), dùng 2.201 ALM (5\%) và 28 DSP (25\%) của thiết
+        bị 5CSXFC6D6F31C6; Fmax = 104,85 MHz.
+  \item \textbf{Demo trên board:} DE10-Standard qua cầu JTAG-to-Avalon đạt 94,27\%
+        (1004/1065), tái lập kết quả mô phỏng.
+  \item \textbf{Cross-dataset:} mô hình huấn luyện trên bộ Chapman mở rộng (Chapman/Ningbo)
+        đánh giá zero-shot trên Georgia (PhysioNet 2020, 12-lead, 5459 record) đạt 93,00\% /
+        macro-F1 0,9151 / macro-AUC 0,9580 (INT8 bit-exact), chứng minh lõi tổng quát hóa thật
+        ra ngoài dữ liệu huấn luyện.
+\end{itemize}
+
+% =====================================================================
+%  2. MỤC TIÊU
+% =====================================================================
+\section{Mục tiêu đề tài và bài toán}
+
+Rối loạn nhịp tim (cardiac arrhythmia) là một trong những nguyên nhân hàng đầu gây đột tử
+tim. Việc phát hiện sớm bằng thiết bị đeo (wearable) giám sát liên tục có giá trị lâm sàng
+cao. Mạng nơ-ron tích chập một chiều (1D-CNN) trên tín hiệu ECG thô đạt độ chính xác tốt,
+tuy nhiên vi điều khiển (MCU) thiếu thông lượng cho inference liên tục, còn GPU biên (edge
+GPU) lại không phù hợp về công suất và kích thước cho thiết bị đeo. FPGA Cyclone V là điểm
+cân bằng hợp lý: đủ song song hóa cho CNN nhỏ, công suất thấp, và có thể nhúng soft-logic
+hoặc cầu host để điều khiển datapath.
+
+\textbf{Mục tiêu thiết kế cụ thể của đề tài:}
+\begin{itemize}
+  \item Thiết kế một mô hình CNN 1D nhỏ gọn, đạt độ chính xác $\geq \sim$94\% trên 4 lớp nhịp
+        Chapman, trên cơ sở tham khảo và tối ưu kiến trúc của bài báo Liu (2023).
+  \item Lượng tử hóa INT8 với khâu rescale không cần multiplier (power-of-two) nhằm giảm tài
+        nguyên DSP và năng lượng tiêu thụ.
+  \item Triển khai lõi RTL được kiểm chứng bit-exact với mô hình phần mềm (không phải chỉ là
+        ``xấp xỉ INT8'' như đa số công trình trước).
+  \item Kiểm chứng chức năng thiết kế bằng mô phỏng và triển khai, đo đạc thực tế trên board
+        DE10-Standard.
+  \item Kiểm tra khả năng tổng quát hóa (cross-dataset) trên dữ liệu Georgia 12-lead để đánh
+        giá độ bền của mô hình ngoài phân phối huấn luyện.
+\end{itemize}
+
+% =====================================================================
+%  3. SOFTWARE
+% =====================================================================
+\section{Đề xuất mô hình và tối ưu pipeline (Software)}
+
+\subsection{Kiến trúc mô hình đề xuất}
+
+Mô hình ECG\_1DCNN (bản đã pruned) gồm 4 lớp tích chập một chiều (kênh 4-4-8-8, kernel K=5,
+padding=2), mỗi lớp theo sau bởi MaxPool stride 5; tiếp đến là Global Average Pooling (GAP)
+$\rightarrow$ lớp Fully-Connected (8$\rightarrow$4) $\rightarrow$ argmax. Kiến trúc kế thừa
+tinh thần ``fully-mapped 1D-CNN'' nhưng được thu nhỏ mạnh (số kênh là lũy thừa 2 để thuận
+lợi cho phần cứng) và cắt tỉa kênh để giảm tham số xuống còn 654 --- cực nhỏ, hướng tới
+thiết bị đeo.
+
+\begin{table}[h]
+\centering
+\caption{Cấu trúc mô hình ECG\_1DCNN pruned (654 tham số).}
+\begin{tabular}{lcccccrr}
+\toprule
+\textbf{Lớp} & \textbf{In\_ch} & \textbf{Out\_ch} & \textbf{K} & \textbf{Pool} & \textbf{ReLU} & \textbf{In\_len} & \textbf{Out\_len}\\
+\midrule
+Conv1 & 1 & 4 & 5 & /5 & Không & 2500 & 500\\
+Conv2 & 4 & 4 & 5 & /5 & Không & 500 & 100\\
+Conv3 & 4 & 8 & 5 & /5 & Không & 100 & 20\\
+Conv4 & 8 & 8 & 5 & /5 & Có & 20 & 4\\
+GAP & 8 & 8 & --- & /4 & --- & 4 & 1\\
+FC & 8 & 4 & --- & --- & --- & 1 & 1\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item ReLU chỉ đặt sau Conv4 --- nhằm giữ lại đặc trưng âm của tín hiệu ECG ở Conv1--Conv3.
+  \item Đầu vào: 2500 mẫu INT8 (5 giây @ 500 Hz, lead II). Đầu ra: 4 lớp AFIB / GSVT / SB / SR.
+\end{itemize}
+
+\subsection{Thuật toán suy luận của mô hình CNN}
+
+Lan truyền tiến (forward) của mô hình là chuỗi bốn khối tích chập--gộp giống nhau, kết thúc
+bằng gộp toàn cục và một lớp tuyến tính. Mỗi lớp tích chập 1D thực chất là phép tương quan
+chéo (cross-correlation) trượt một kernel độ dài K=5 dọc trục thời gian; với mỗi vị trí đầu
+ra $t$ và mỗi kênh ra $j$:
+\begin{equation}
+  y_j[t] = b_j + \sum_{c=1}^{C_{in}} \sum_{k=0}^{K-1} w_{j,c}[k]\;\cdot\;x_c\,[\,t + k - P\,]
+\end{equation}
+trong đó $P=2$ là padding (đệm 0 hai biên để giữ độ dài), $C_{in}$ là số kênh vào. Vì padding
+``same'', độ dài chuỗi không đổi qua tích chập; việc giảm chiều hoàn toàn do MaxPool đảm
+nhiệm. MaxPool 1D với cửa sổ và stride đều bằng 5 lấy giá trị lớn nhất trên từng cụm 5 mẫu
+liên tiếp, giảm độ dài đúng 5 lần mỗi lớp (2500$\rightarrow$500$\rightarrow$100$\rightarrow$20$\rightarrow$4):
+\begin{equation}
+  p_j[t] = \max_{0 \le k < 5}\; y_j[\,5t + k\,]
+\end{equation}
+Sau bốn khối, mỗi kênh còn 4 mẫu. Global Average Pooling (GAP) nén mỗi kênh thành một số bằng
+trung bình trên trục thời gian, tạo vector đặc trưng độ dài bằng số kênh (8):
+\begin{equation}
+  g_j = \frac{1}{4}\sum_{t=0}^{3} p_j[t]
+\end{equation}
+Vector đặc trưng đi qua lớp Fully-Connected (8$\rightarrow$4) cho 4 logit, rồi argmax chọn
+lớp có logit lớn nhất làm nhãn dự đoán:
+\begin{equation}
+  z_i = \sum_{j} W_{i,j}\,g_j + b_i, \qquad \hat{y} = \arg\max_i\, z_i
+\end{equation}
+\begin{itemize}
+  \item ReLU chỉ đặt trước FC (sau Conv4) là một lựa chọn có chủ đích: nhịp tim mang thông tin
+        ở cả phần âm lẫn dương của tín hiệu, nên Conv1--3 không ReLU để không cắt mất biên độ
+        âm; ReLU ở Conv4 tạo phi tuyến tính cuối cùng cho bộ phân loại tuyến tính phía sau.
+\end{itemize}
+
+\subsection{Hàm mất mát, lan truyền ngược và bộ tối ưu}
+
+Mô hình được huấn luyện theo học có giám sát. Đầu ra 4 logit được chuẩn hóa thành phân phối
+xác suất bằng softmax, và hàm mất mát là cross-entropy giữa phân phối dự đoán và nhãn thật
+(one-hot). Với một mẫu có nhãn đúng là lớp $c$:
+\begin{equation}
+  \mathcal{L} = -\log\!\left( \frac{e^{z_c}}{\sum_{i} e^{z_i}} \right) = -z_c + \log\!\sum_{i} e^{z_i}
+\end{equation}
+Trong PyTorch, hai bước softmax và cross-entropy được gộp trong \texttt{nn.CrossEntropyLoss}
+(nhận thẳng logit, ổn định số học). Mất mát của cả batch là trung bình theo mẫu.
+
+Quá trình lan truyền ngược (backpropagation) tính gradient của hàm mất mát theo mọi tham số
+bằng quy tắc chuỗi, lan ngược từ lớp FC qua GAP, các khối Conv--Pool về tới Conv1. Một bước
+huấn luyện gồm bốn thao tác lặp lại trên từng batch:
+
+\begin{lstlisting}
+for each batch (ecg, label):
+    optimizer.zero_grad()        # xoa gradient tich luy
+    logits = model(ecg)          # lan truyen tien (forward)
+    loss   = CrossEntropy(logits, label)
+    loss.backward()              # lan truyen nguoc: tinh dL/dtheta
+    optimizer.step()             # cap nhat tham so theta
+\end{lstlisting}
+
+Bộ tối ưu là Adam (Adaptive Moment Estimation) --- kết hợp động lượng (moment bậc nhất) và
+tỉ lệ học thích nghi theo từng tham số (moment bậc hai), hội tụ nhanh và ít nhạy với việc
+chọn tỉ lệ học hơn SGD thuần. Với mỗi tham số $\theta$, Adam duy trì hai ước lượng trung bình
+trượt của gradient $g$ và bình phương gradient:
+\begin{equation}
+  m_t = \beta_1 m_{t-1} + (1-\beta_1)\,g_t, \qquad v_t = \beta_2 v_{t-1} + (1-\beta_2)\,g_t^{2}
+\end{equation}
+\begin{equation}
+  \hat{m}_t = \frac{m_t}{1-\beta_1^{t}}, \quad \hat{v}_t = \frac{v_t}{1-\beta_2^{t}}, \qquad
+  \theta_t = \theta_{t-1} - \eta\,\frac{\hat{m}_t}{\sqrt{\hat{v}_t}+\epsilon}
+\end{equation}
+
+\textbf{Cấu hình huấn luyện thực tế:}
+\begin{itemize}
+  \item Hàm mất mát: CrossEntropyLoss; bộ tối ưu: Adam, tỉ lệ học khởi đầu $\eta = 10^{-3}$.
+  \item Lịch tỉ lệ học: MultiStepLR giảm $\times 0,1$ tại giữa quá trình (epoch 50)
+        $\rightarrow$ tinh chỉnh ở $10^{-4}$.
+  \item 100 epoch, batch size 128; chọn checkpoint tốt nhất theo val loss thấp nhất
+        (early-stopping ngầm theo validation).
+  \item Cùng công thức tối ưu (Adam + CrossEntropy) được tái sử dụng ở cả hai giai đoạn sau:
+        fine-tune sau pruning và huấn luyện QAT --- chỉ khác tỉ lệ học và số epoch.
+\end{itemize}
+
+\subsection{Các thuật toán tối ưu mô hình (nén \& lượng tử hóa)}
+
+\textbf{Ba kỹ thuật tối ưu được áp dụng tuần tự để đưa mô hình từ một CNN float32 đầy đủ về
+một lõi INT8 cực nhỏ, phù hợp phần cứng mà giữ độ chính xác.}
+
+\textbf{(a) Cắt tỉa kênh có cấu trúc (structured channel pruning).}
+Mô hình gốc (kênh 4-8-8-16) được cắt tỉa xuống (4-4-8-8) bằng cách loại bỏ trọn các bộ lọc
+(output channel) ít quan trọng nhất --- cắt tỉa ``có cấu trúc'' nên kết quả vẫn là một CNN
+dày đặc, chạy thẳng trên phần cứng mà không cần hỗ trợ ma trận thưa. Độ quan trọng của mỗi
+kênh được xếp hạng theo hai tiêu chí:
+\begin{itemize}
+  \item Chuẩn L1 của bộ lọc: kênh có tổng trị tuyệt đối trọng số nhỏ $\rightarrow$ đóng góp
+        ít $\rightarrow$ cắt trước.
+\end{itemize}
+\begin{equation}
+  I_j^{L1} = \sum_{c,k} \left| w_{j,c}[k] \right|
+\end{equation}
+\begin{itemize}
+  \item Điểm Taylor bậc nhất (Molchanov et al., 2017): ước lượng mức tăng hàm mất mát nếu xóa
+        kênh $j$ bằng tích của activation và gradient, lấy trung bình trên dữ liệu --- bám sát
+        ảnh hưởng thật tới độ chính xác hơn chuẩn L1 thuần.
+\end{itemize}
+\begin{equation}
+  I_j^{Taylor} = \left| \frac{1}{N}\sum_{n}\; a_j^{(n)} \cdot \frac{\partial \mathcal{L}}{\partial a_j^{(n)}} \right|
+\end{equation}
+Sau khi cắt, mô hình được tinh chỉnh lại (fine-tune) hai pha để phục hồi độ chính xác: pha 1
+(30 epoch, lr=$10^{-3}$) khôi phục nhanh, pha 2 (20 epoch, lr=$10^{-4}$) tinh chỉnh. Kết quả:
+tham số giảm từ $\sim$1244 xuống 654 mà accuracy gần như không đổi ($\sim$94\%).
+
+\textbf{(b) Lượng tử hóa nhận biết huấn luyện (QAT) với STE và scale EMA.}
+Thay vì chỉ lượng tử hóa sau huấn luyện, mô hình được huấn luyện trực tiếp dưới điều kiện
+lượng tử hóa ``giả'' (fake quantization): trong forward, mỗi tensor trọng số/activation bị
+lượng tử hóa rồi giải-lượng-tử ngay (quantize--dequantize) để mạng ``nhìn thấy'' sai số lượng
+tử ngay khi học:
+\begin{equation}
+  x_q = \mathrm{round}\!\left(\frac{x}{s}\right)\cdot s, \quad \text{clamp về } [-127, 127]
+\end{equation}
+\begin{itemize}
+  \item Straight-Through Estimator (STE): phép round không khả vi, nên ở backward gradient
+        được truyền thẳng qua (đạo hàm xấp xỉ bằng 1), cho phép huấn luyện qua khâu lượng tử
+        hóa.
+\end{itemize}
+\begin{equation}
+  \text{forward: } x_q;\qquad \text{backward: } \frac{\partial x_q}{\partial x} \approx 1
+\end{equation}
+\begin{itemize}
+  \item Scale học bằng trung bình trượt mũ (EMA) của biên độ lớn nhất qua các batch, ổn định
+        hơn lấy max tức thời; sau giai đoạn warmup, scale được ``đóng băng'' để hội tụ ổn định.
+\end{itemize}
+
+\textbf{(c) Lượng tử hóa power-of-two} (chi tiết công thức ở mục 3.5).
+Khác biệt then chốt so với QAT thông thường: scale của mỗi lớp bị ràng buộc là một lũy thừa
+của hai, biến phép rescale đắt đỏ (nhân với số thực + dịch) thành chỉ một phép dịch bit + cộng
+bù làm tròn. Đây chính là cầu nối giữa tối ưu phần mềm và tối ưu phần cứng: lựa chọn ở khâu
+huấn luyện trực tiếp xóa bỏ multiplier ở khâu rescale trên FPGA.
+
+\subsection{Lượng tử hóa power-of-two QAT --- công thức}
+
+Trọng số, activation và bias được lượng tử hóa INT8 với scale là lũy thừa hai theo từng lớp.
+Số bit dịch của mỗi lớp được chọn theo:
+\begin{equation}
+  nb = \left\lfloor \log_2\!\left(\frac{127}{|x|_{\max}}\right) \right\rfloor
+\end{equation}
+Giá trị cụ thể cho từng lớp (Conv1..Conv4, FC):
+\begin{equation}
+  nb = \{8,6,6,7,0\}, \quad w\_shift = \{6,6,6,7,8\}, \quad input\_shift = 2
+\end{equation}
+Phép rescale ở đầu ra mỗi lớp dùng làm tròn nửa lên (round-half-up) rồi bão hòa về dải INT8:
+\begin{equation}
+  out = \mathrm{clamp}\!\left( \left\lfloor \frac{acc + 2^{\,nb-1}}{2^{\,nb}} \right\rfloor,\ -127,\ 127 \right)
+\end{equation}
+Tương đương với phép dịch bit số học có cộng bù làm tròn:
+\begin{equation}
+  round\_half\_up(x) = (x + 2^{\,nb-1}) \gg nb
+\end{equation}
+Bias được scale theo cùng hệ số và lưu INT32 little-endian:
+\begin{equation}
+  bias\_scaled = \mathrm{round}\!\left( b_{float} \cdot 2^{\,nb} \right)
+\end{equation}
+Vì mọi scale là lũy thừa hai, khâu rescale chỉ cần dịch bit + cộng, tức 0 DSP --- trong khi
+lượng tử general-scale cần 1 multiplier cho mỗi điểm rescale. Đây là đòn bẩy tiết kiệm tài
+nguyên và năng lượng then chốt của thiết kế.
+
+\subsection{Kết quả lượng tử}
+
+Để định lượng đánh đổi của power-of-two so với general-scale, dự án thực hiện một ma trận
+ablation (single-run, seed=42; cột DSP là số multiplier cần cho riêng khâu rescale):
+
+\begin{table}[h]
+\centering
+\caption{Ablation lượng tử hóa trên Chapman.}
+\begin{tabular}{llcrrr}
+\toprule
+\textbf{Variant} & \textbf{Scale} & \textbf{Train} & \textbf{Acc \%} & \textbf{F1} & \textbf{DSP rescale}\\
+\midrule
+Float32 baseline & --- & --- & 94,65 & 0,9402 & ---\\
+PTQ power-of-2 & $2^{nb}$ & none & 94,08 & 0,9338 & 0\\
+PTQ general & absmax/127 & none & 94,46 & 0,9380 & 4\\
+QAT power-of-2 (ours) & $2^{nb}$ & fake-quant & 94,37 & 0,9364 & 0\\
+QAT general & absmax/127 & fake-quant & 94,65 & 0,9398 & 4\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+%  4. HARDWARE
+% =====================================================================
+\section{Thiết kế phần cứng dựa trên thuật toán (Hardware)}
+
+\subsection{Kiến trúc tổng thể}
+
+\begin{lstlisting}
+Avalon-MM  ->  Input SRAM (2500 x 8b)
+                   |  (MUX cho Conv1)
+         Conv-Pool Engine (8 CP block song song,
+         K=5 pad=2, MaxPool /5)
+                   |  Ping-Pong SRAM (feature map lien lop)
+         GAP / FC / Argmax  ->  result[1:0]  (0..3)
+\end{lstlisting}
+
+Một FSM điều khiển phẳng 8 trạng thái tuần tự hóa 4 lớp conv cùng đuôi GAP/FC/Argmax. Module
+\texttt{avalon\_slave.v} đóng vai bus adapter, dùng chung cho cả luồng synthesis (virtual-pin)
+lẫn luồng on-board (JTAG-to-Avalon).
+
+\subsection{CP block --- pipeline 5 tầng, tách 3 submodule}
+\begin{itemize}
+  \item MAC (S1--S4): 5 multiplier INT8$\times$INT8 (DSP18) $\rightarrow$ adder tree 3 tầng
+        $\rightarrow$ tree\_out.
+  \item Accumulate + rescale (S5--S8): cộng dồn partial sum theo in\_ch; gập (fold) bias +
+        round-add vào giá trị khởi tạo accumulator để cắt khỏi critical path (kết quả số học
+        không đổi); clamp $[-127,127]$; ReLU cho Conv4.
+  \item Pool (S9): comparator max trượt cho MaxPool K=5, stride 5.
+\end{itemize}
+Độ sâu pipeline từ MUX cửa sổ vào tới thời điểm cập nhật accumulator là đúng 5 chu kỳ; delay
+chain trong controller phải khớp con số này --- một lỗi off-by-one ở đây từng là bug kiểm
+chứng chính và đã được sửa.
+
+\subsection{Dataflow streaming gập (folded)}
+
+Thay vì map toàn bộ mỗi lớp ra phần cứng riêng (fully-mapped như competitor Liu 2023),
+Conv-Pool Engine time-multiplex 8 CP block trên các vị trí output và stream đầu vào qua
+shift-register. Đây là đòn bẩy diện tích chính: tái sử dụng một bộ PE cho mọi vị trí của một
+lớp, đổi độ trễ tăng (nhưng xác định) lấy mức giảm logic/register đáng kể.
+
+\subsection{Số liệu phần cứng}
+
+Thiết bị Cyclone V 5CSXFC6D6F31C6, Fmax đọc ở góc Slow 1100mV/85°C:
+
+\begin{table}[h]
+\centering
+\caption{Tài nguyên \& timing trên Cyclone V.}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Metric} & \textbf{Baseline (FF-ROM)} & \textbf{+ weight-RAM reload}\\
+\midrule
+ALM & 2.201 (5\%) & 2.820 (7\%)\\
+DSP & 28 (25\%) & 28 (25\%)\\
+Registers & 3.177 & 4.852\\
+M10K & 20 (4\%) & 28 (5\%)\\
+Fmax (standalone) & 104,85 MHz & 108,94 MHz\\
+Latency & 5.216 cy (52,16 µs) & 5.216 cy (52,16 µs)\\
+Throughput & $\sim$19.200 inf/s & $\sim$19.200 inf/s\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+  \item Overhead của weight-reload (+619 ALM, +8 M10K) đến từ logic nạp-được (read-address
+        adder, 8-way write decode, lắp ráp 40-bit), không phải từ bộ nhớ (M10K = 0 ALM).
+\end{itemize}
+
+% =====================================================================
+%  5. VERIFICATION
+% =====================================================================
+\section{Kiểm định chức năng thiết kế (Verification)}
+
+Hợp đồng kiểm chứng của dự án là bit-exactness giữa Python và RTL. Mô hình golden Python tái
+lập đúng trình tự số học của RTL:
+\begin{equation}
+\begin{aligned}
+  acc_{32} \;\rightarrow\; &+\,bias\_scaled \;\rightarrow\; +\,2^{\,nb-1} \;\rightarrow\; \gg nb\\
+  \;\rightarrow\; &\mathrm{clamp}[-127,127] \;\rightarrow\; \mathrm{ReLU}(\text{Conv4}) \;\rightarrow\; \mathrm{MaxPool}
+\end{aligned}
+\end{equation}
+Trong đó GAP dùng phép chia nguyên (floor) và FC giữ nguyên logit INT32 ($nb=0$) đưa vào
+argmax:
+\begin{equation}
+  GAP = \left\lfloor \frac{sum}{4} \right\rfloor = sum \gg 2
+\end{equation}
+Mỗi mẫu đầu vào có 21 checkpoint (input INT8, 4 pool output, GAP, 4 FC logit). Testbench
+Questa nạp golden \texttt{.mem} và so sánh từng checkpoint. Kết quả lõi production:
+\begin{itemize}
+  \item 21/21 checkpoint PASS, $\max|\text{diff}| = 0$ LSB trên 15.312 phần tử so sánh
+        (3 mẫu test).
+  \item Latency xác định 5.216 chu kỳ cho mọi mẫu.
+\end{itemize}
+
+% =====================================================================
+%  6. CROSS-DATASET
+% =====================================================================
+\section{Kiểm chứng cross-dataset với dữ liệu Georgia}
+
+Để trả lời câu hỏi ``mô hình có tổng quát hóa ra ngoài dữ liệu huấn luyện không?'', dự án
+đánh giá mô hình trực tiếp trên dữ liệu Georgia 12-lead (PhysioNet/CinC Challenge 2020, bộ
+Emory G12EC). Đây là dữ liệu thu ở một quần thể và cơ sở y tế hoàn toàn khác, đóng vai
+far-transfer cân bằng (balanced).
+
+\subsection{Thiết lập đánh giá}
+\begin{itemize}
+  \item Bộ huấn luyện mở rộng: gộp Chapman và Ningbo (cùng chuẩn 12-lead/10s/500Hz, cùng
+        taxonomy SNOMED 4 lớp) để mở rộng độ đa dạng quần thể và thiết bị thu, tăng độ bền của
+        boundary giữa các lớp nhịp.
+  \item Tiền xử lý: lấy lead II từ trường \texttt{val[1]} của file \texttt{.mat}, downsample
+        500$\rightarrow$250 Hz, z-score chuẩn hóa, cửa sổ 2500 mẫu --- đồng nhất với pipeline
+        Chapman.
+  \item Ánh xạ nhãn: các SNOMED subclass của Georgia khớp đúng taxonomy 4 lớp của Chapman.
+  \item Tập đánh giá Georgia: 5459 record, phân bố cân bằng AFIB 692 / GSVT 1192 / SB 1521 /
+        SR 2054 --- khác hẳn PTB-XL (SR chiếm 84\%), nên là phép thử khắt khe về tổng quát hóa.
+\end{itemize}
+
+\subsection{Kết quả huấn luyện trên Chapman mở rộng đánh giá trên Georgia}
+
+Mô hình huấn luyện trên Chapman + Ningbo (lượng tử hóa QAT-INT8, bit-exact với RTL) được
+đánh giá zero-shot trực tiếp trên 5459 record Georgia:
+
+\begin{table}[h]
+\centering
+\caption{Cross-dataset trên Georgia.}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Chế độ} & \textbf{Acc} & \textbf{macro-P} & \textbf{macro-R} & \textbf{macro-F1} & \textbf{macro-AUC}\\
+\midrule
+Chapman/Ningbo $\rightarrow$ Georgia (INT8) & 0,9300 & 0,9142 & 0,9161 & 0,9151 & 0,9580\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Bảng per-class (train Chapman + Ningbo, INT8 $\rightarrow$ Georgia, 5459 record):
+
+\begin{table}[h]
+\centering
+\caption{Per-class (train Chapman/Ningbo, INT8) trên Georgia.}
+\begin{tabular}{lcccr}
+\toprule
+\textbf{Lớp} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} & \textbf{Support}\\
+\midrule
+AFIB & 0,831 & 0,824 & 0,827 & 692\\
+GSVT & 0,921 & 0,945 & 0,933 & 1192\\
+SB & 0,954 & 0,962 & 0,958 & 1521\\
+SR & 0,951 & 0,933 & 0,942 & 2054\\
+macro & 0,914 & 0,916 & 0,915 & 5459\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Ma trận nhầm lẫn (hàng = nhãn thật, cột = dự đoán), INT8:
+
+\begin{lstlisting}
+             AFIB  GSVT    SB    SR
+  AFIB  ->     570    35    11    76
+  GSVT  ->      46  1127     7    12
+  SB    ->      37    10  1464    10
+  SR    ->      33    52    53  1916
+\end{lstlisting}
+
+\subsection{Phân tích}
+
+Train Chapman/Ningbo, test Georgia (far-transfer balanced) --- cho một bức tranh tổng quát
+hóa đầy đủ, trải từ phân phối gần đến phân phối xa; và cho thấy chiến lược mở rộng tập huấn
+luyện sang dữ liệu cùng họ là hướng nâng độ bền hiệu quả mà không cần can thiệp vào dữ liệu
+test.
+
+% =====================================================================
+%  7. DEMO
+% =====================================================================
+\section{Demo thiết kế trên FPGA}
+
+Lõi được nạp lên kit DE10-Standard và điều khiển qua cầu JTAG-to-Avalon kết hợp công cụ
+System Console của Quartus. Quy trình demo: nạp trọng số Chapman vào weight-RAM qua Avalon,
+ghi mẫu ECG vào input SRAM, kích hoạt inference, đọc kết quả \texttt{result[1:0]}.
+\begin{itemize}
+  \item \textbf{Kết quả:} Phân loại tập test Chapman trên board đạt 94,27\% (1004/1065), tái
+        lập kết quả mô phỏng $\sim$94\%. Chênh lệch là do test-subset/lần chạy, không phải sai
+        số số học (datapath đã bit-exact).
+  \item \textbf{Hạ tầng điều khiển:} JTAG-to-Avalon + System Console.
+\end{itemize}
+Demo này hoàn tất mục tiêu ``triển khai và đo đạc thực tế trên FPGA'': lõi không chỉ đúng
+trong mô phỏng mà còn cho ra cùng kết quả khi chạy trên silicon thật.
+
+% =====================================================================
+%  8. TIẾN ĐỘ
+% =====================================================================
+\section{Báo cáo tiến độ hiện tại}
+
+\begin{table}[h]
+\centering
+\caption{Trạng thái tiến độ theo Phase.}
+\begin{tabularx}{\textwidth}{lXl}
+\toprule
+\textbf{Phase} & \textbf{Nội dung} & \textbf{Trạng thái}\\
+\midrule
+Software baseline & Prune (4,4,8,8), QAT-INT8 round-half-up, export hex, golden .mem & Hoàn thành\\
+Cross-dataset & Georgia (far-balanced) & Hoàn thành\\
+Hardware Design & ecg\_core.v + wrapper Avalon bus & Hoàn thành\\
+Verification & Testbench 3 sample golden raw int8 & Hoàn thành\\
+Synthesis & ALM 2201, DSP 28, Fmax 104,85 & Hoàn thành\\
+Demo on-board & JTAG-to-Avalon DE10 94,27\% & JTAG done\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\end{document}

@@ -1,5 +1,24 @@
 # PROJECT.md — CNN Accelerator for ECG Arrhythmia Classification
 
+> ## ⚠️ PHẠM VI LUẬN VĂN (chốt 2026-07-30)
+> **Luận văn chỉ trình bày bản RTL ROM (`hardware/RTL/`) chạy trên DE10-Standard.**
+> Khi viết bài / cập nhật doc luận văn, KHÔNG đề cập những phần sau (chúng vẫn tồn tại trong
+> repo và mô tả kỹ thuật bên dưới vẫn giữ để tham chiếu, nhưng **ngoài phạm vi bài**):
+>
+> | Ngoài phạm vi | Ghi chú |
+> |---|---|
+> | Biến thể **SIMD-20** position-parallel + bảng DSE 2 dataflow | worktree `feature/simd-spec` |
+> | Cơ chế **weight-load qua Avalon** (`hardware/RTL_weight/`, Phase B01) + runtime topology config | bản nộp dùng ROM `$readmemh` |
+> | **Elastic-Pareto** (nhiều topology / 1 bitstream) | phụ thuộc weight-load |
+> | Port **DE0-Nano / Cyclone IV E** + power gate-level SDF | ngoài device mục tiêu |
+>
+> **Số liệu chốt cho bài** (nguồn duy nhất = `PAPER_DATA.md`):
+> ALM **2.120** (5%) · Reg **3.158** · DSP 28 (25%) · M10K 20 (4%) · Fmax **108.46 MHz** ·
+> latency 52.16 µs · power 805.53 mW → **42.02 µJ/inf** (confidence **Low**, phải kèm caveat).
+> Accuracy: **94.27%** (Chapman-Ningbo INT8 khớp-bit, số triển khai) và **94.65%** (Chapman,
+> dùng cho quant-ablation + board) — **KHÔNG trộn hai số**.
+> KHÔNG dùng số cũ: 2.201 ALM / 3.177 Reg / 104.85 MHz / 623 mW / 10.3 µJ / 137.6 MHz.
+
 ## Mục tiêu dự án
 
 Thiết kế và triển khai một **CNN Accelerator** trên FPGA để phân loại rối loạn nhịp tim (arrhythmia) từ tín hiệu ECG, gồm hai phần:
@@ -69,11 +88,11 @@ acc_int32 = conv(x_int8, w_int8) + bias_scaled
 out_int8  = clamp(round_half_up(acc_int32 / 2^nb), -127, 127)
 ```
 
-**nb per layer:** conv1=8, conv2=6, conv3=6, conv4=7, fc=0
+**nb per layer:** conv1=8, conv2=7, conv3=6, conv4=7, fc=0 *(ningba re-train 2026-07-28; Chapman cũ conv2=6)*
 
-**w_shift per layer:** conv1=6, conv2=6, conv3=6, conv4=7, fc=8
+**w_shift per layer:** conv1=6, conv2=7, conv3=6, conv4=7, fc=7 *(ningba; Chapman cũ conv2=6, fc=8)*
 
-**input_shift_bits = 2** (áp dụng cho input ECG → INT8)
+**input_shift_bits = 2** (áp dụng cho input ECG → INT8; ningba cần clip input ±16 để giữ shift=2)
 
 **Bias scaling:** `bias_scaled = round(b_float * 2^nb)` — lưu INT32 little-endian
 
@@ -115,12 +134,36 @@ python export_weights_int8.py `
 
 ## Kết quả Software
 
+### Chapman gốc (~10646, baseline lịch sử — dùng cho Phase D board / SoTA table)
+
 | Model | Params | Accuracy | F1-macro | AFIB Recall |
 |-------|--------|----------|----------|-------------|
 | Float32 baseline | 1244 | ~94.8% | — | — |
-| Pruned float32 | 654 | ~92% | — | — |
-| QAT-INT8 float eval | 654 | ~94.84% | — | — |
-| **QAT-INT8 round-half-up** (bit-exact) | **654** | **94.65%** | **0.9396** | **0.9266** |
+| Pruned float32 | 640 | ~92% | — | — |
+| QAT-INT8 float eval | 640 | ~94.84% | — | — |
+| **QAT-INT8 round-half-up** (bit-exact) | **640** | **94.65%** | **0.9396** | **0.9266** |
+
+### Ningba (Chapman mở rộng, 33143 records — build chính hiện tại, re-train 2026-07-28)
+
+Train `ningbo_dataset_clip16.npz` (input clip ±16 → input_shift=2). Test 4973.
+INT8 = bit-exact GAP floor (= số RTL ROM cho ra). Chi tiết: `results/ningba/EVAL_TABLES.md`.
+
+| Model | Params | Accuracy | F1-macro | AFIB Recall |
+|-------|--------|----------|----------|-------------|
+| Float32 dense | 1244 | 95.35% | 0.9478 | — |
+| Pruned+FT INT8 | 640 | 94.51% | 0.9390 | — |
+| Float32 (QAT ckpt) | 640 | 95.03% | 0.9446 | 0.9442 |
+| **QAT-INT8 bit-exact** | **640** | **94.27%** | **0.9356** | **0.9062** |
+
+macro-AUC: float32 0.9938 / INT8 0.9712. INT8↔float agreement 0.976.
+
+**Cross-dataset Georgia (5459, zero-shot far-transfer, cùng model ningba):**
+float32 acc 92.91% / F1 0.9142 · **INT8 acc 93.00% / F1 0.9151** · AUC 0.958.
+INT8 bám float trong 0.1pp (quant không phải nguồn drop). Chi tiết: `results/georgia/EVAL_TABLES.md`.
+
+**Golden test đã sinh** (ningba + Georgia): `results/{ningba,georgia}/test_golden/` gồm
+`label_golden/` (4 mẫu/nhãn cho sim nhãn), `bitexact/` (1 mẫu 21-checkpoint),
+`fullset/expected_argmax.hex` (toàn test so accuracy RTL≈SW). Consistency PASS 100%.
 
 ---
 
@@ -211,7 +254,9 @@ python export_weights_int8.py `
 - **QAT dùng cho checkpoint chính** — nhưng power-of-2 INT8 robust: PTQ (calibrate, no fine-tune) cũng đạt 94.08%, QAT chỉ hơn ~0.3% (94.37%). PTQ là baseline A0 trong Table 4 (KHÔNG sập — claim "~22% broken" cũ đã bị bác bỏ bằng số đo bit-exact)
 - **Rounding**: round-half-up, KHÔNG phải floor
 - **Output channels mới**: 4,4,8,8 (power-of-2) — cần re-train trước khi update hardware
-- **Dataset**: `d:\Thesis101\data\Chapman` (cross-dataset: `d:\Thesis101\data\ptbxl`)
+- **Dataset train chính (2026-07-28)**: `data/ningba_processed/ningbo_dataset_clip16.npz` (Chapman mở rộng 33143, clip input ±16). Chapman gốc `data/Chapman` giữ cho baseline lịch sử. Cross-dataset: Georgia `data/georgia_by_class` (5459, zero-shot), PTB-XL `data/ptbxl`.
+- **Loader npz**: `utils/npz_dataset.py get_npz_dataloaders` — flag `--npz` cho train/prune/qat/generate_golden (đọc npz thay Chapman-xlsx). Scripts eval/golden mới: `int8_eval_batch.py` (INT8 bit-exact re-classify + 2 bảng + CM/ROC), `gen_test_golden.py` (label_golden 4 nhãn + bitexact + fullset).
+- **RTL ROM đã đồng bộ ningba (2026-07-28)**: `hardware/RTL/*_w.hex` = weight ningba; `cnn_controller.v` nb hard-code đổi Conv2 6→7 (nb=8/7/6/7). RTL/ KHÔNG còn chạy Chapman gốc bằng ROM. **Chưa re-run tb_top.v** với golden ningba mới.
 - **Simulation tool**: ModelSim/Questa (Windows) — RTL trong `hardware/`, sim trong `hardware/fpga/simulation/questa/`
 - **Cross-dataset = PTB-XL** (không phải MIT-BIH — đã chuyển vì PTB-XL 500Hz/10s sẵn, không cần resample 360Hz)
 - **`hardware/` = production** (8 modules, 21/21 bit-exact, synth thật). **`hardware_v3/` = skeleton reference** fully-mapped mirror Liu 2023 — KHÔNG thay production, chỉ để so sánh kiến trúc trong paper.

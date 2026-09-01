@@ -4,6 +4,12 @@
 **Ngày**: 2026-05-24 (cập nhật 2026-06-01)
 **Target venue**: Electronics (MDPI) hoặc Sensors (MDPI) — Q3, IF ~2.9–3.4
 
+> **⚠️ FILE LỊCH SỬ — KHÔNG dùng để viết luận văn.** Đây là proposal cho venue MDPI (hướng cũ);
+> venue thực tế của bài báo đã chuyển sang **ICDV** (xem `paper/ICDV_draft.md`). Với **luận văn**,
+> phạm vi hẹp hơn nữa: chỉ bản **RTL ROM trên DE10** — không có weight-reload (C5), không có
+> SIMD-20/DSE, không có DE0-Nano. Xem khung phạm vi ở `PROJECT.md` và số liệu ở `PAPER_DATA.md`.
+> File này giữ lại vì mục **10b (rebuttal reviewer)** và các bảng ablation vẫn còn giá trị tham chiếu.
+
 ---
 
 ## 1. Tiêu đề đề xuất

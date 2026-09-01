@@ -1,0 +1,36 @@
+CHƯƠNG 4:	KẾT QUẢ THỰC HIỆN VÀ ĐÁNH GIÁ 
+4.1.	PHƯƠNG PHÁP ĐÁNH GIÁ (2 trang )
+4.1.1.	Hiệu năng mô hình (Confusion Matrix, Accuracy, Precision, Recall, F1-score, ROC ) 
+- Trình bày định nghĩa, công thức (dạng equation) , trong 1 trang
+4.1.2.	Hiệu năng phần cứng (Convert golden data, Throughtput, Latency, Resource, Power )
+- Trình bày định nghĩa, công thức (dạng equation) và lý do vì sao còn convert golden data
+4.2.	KẾT QUẢ HUẤN LUYỆN MÔ HÌNH (2 trang)
+4.2.1.	Kết quả từ tập data huấn luyện (1 trang)
+- Hình CM, bảng (Precision, Recall, F1-score), viết đánh giá về kết quả, 150 chữ
+4.2.2.	Kết quả từ tập data kiểm tra chéo (1 trang)
+- Hình CM, bảng (Precision, Recall, F1-score), viết đánh giá về kết quả, 150 chữ
+4.3.	KẾT QUẢ MÔ PHỎNG CHỨC NĂNG (2 trang )
+4.3.1.	Kết quả mô phỏng chức năng convolution-pool unit (tb_cp_block ) (0.5 trang)
+- Mô tả testplan trong bảng, mô tả sơ bộ quá trinh input vào, tín hiệu điều khiển, cờ lệnh và output đi ra của module 
+4.3.2.	Kết quả mô phỏng chức năng vận hành lớp (tb_layer ) (0.5 trang)
+- Mô tả testplan trong bảng, mô tả sơ bộ quá trinh input vào, tín hiệu điều khiển, cờ lệnh và output đi ra của module 
+4.3.3.	Kết quả mô phỏng mẫu data test (tb_bitexact1) (0.5 trang)
+- Mô tả testplan trong bảng, mô tả sơ bộ quá trình nạp mẫu vào, đi qua bus, rồi vào core, tính toán qua các lớp rồi trả ra kết quả phân loại, có khớp với nhãn không ? 
+4.3.4.	 Kết quả mô phỏng mẫu kiểm tra chéo (tb_bitexact2) (0.5 trang )
+- Mô tả testplan trong bảng, mô tả sơ bộ quá trình nạp mẫu vào, đi qua bus, rồi vào core, tính toán qua các lớp rồi trả ra kết quả phân loại, có khớp với nhãn không ? 
+
+4.4.	KẾT QUẢ THỰC NGHIỆM TRÊN BOARD FPGA (3,4 trang )
+- Lập bảng 4 bước test và mô tả sơ bộ (0.5 trang )
+- Chụp 4 hình gồm : 1 (trang)
+- Nạp 1 mẫu test và cross-check và hiện kết quả phân loại trên System Console (1 trang )
+- Nạp toàn bộ mẫu test và cross-check hiện kết quả phân loại, độ chính xác lên System Console 1 (trang)
+4.5.	ĐÁNH GIÁ TÀI NGUYÊN VÀ HIỆU NĂNG 3 (trang)
+4.5.1.	Kết quả tài nguyên 
+- Bảng Resource theo từng module, toàn bộ design ( Avalon + core ) (1 trang )
+- Viết sơ bộ đánh giá, nhận xét về số liệu
+4.5.2.	Kết quả hiệu năng (Fmax, latency,throughtput)
+- Bảng Fmax complier được so với tần số của fpga (0.5 trang)
+- Hiện cách tính latency, throughtput (0.5 trang )
+4.6.	SO SÁNH VỚI CÁC NGHIÊN CỨU KHÁC (1 trang )
+-So sánh với it nhất 2 bài báo, đề tài, lập bảng 
+- Resource, Power, latency, throughtput, model, accuracy, parameters
